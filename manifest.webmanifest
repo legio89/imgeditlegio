@@ -1,9 +1,1 @@
-{
-  "name": "AI Mobile Photo Studio",
-  "short_name": "AI Photo Studio",
-  "start_url": "./",
-  "display": "standalone",
-  "background_color": "#101116",
-  "theme_color": "#101116",
-  "lang": "es"
-}
+{"name":"AI Mobile Photo Studio","short_name":"AI Photo Studio","start_url":"./","display":"standalone","background_color":"#101116","theme_color":"#101116","description":"Editor móvil local con máscaras y referencias"}

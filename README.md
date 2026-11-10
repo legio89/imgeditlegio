@@ -1,15 +1,24 @@
-# AI Mobile Photo Studio — MVP 0.1
+# AI Mobile Photo Studio — MVP 0.3
 
-Prototipo PWA estático para Android. Organiza una imagen original, referencias de rostro/cuerpo/vestuario/pose/escenario y las instrucciones de edición.
+Editor web móvil (PWA) para preparar ediciones fotográficas con referencias y máscaras manuales.
 
-## Importante: alcance de esta versión
-Esta versión **no ejecuta todavía modelos de IA**. Es la primera capa funcional: interfaz, previsualización local y exportación de las imágenes junto con un manifiesto JSON. No sube imágenes a ningún servidor.
+## Novedades 0.3
+- Editor de máscaras sobre la fotografía original mediante canvas.
+- Cuatro herramientas: proteger cuerpo, proteger rostro, marcar zona editable y borrar.
+- Pincel ajustable, opacidad visual, deshacer y limpiar máscara.
+- Exportación de máscara PNG y manifiesto JSON.
+- Mantiene las seis categorías de referencias, controles de fidelidad y modos automático/manual/híbrido.
+- Caché PWA actualizada a `aimps-v03`.
 
-## Ejecutar
-- Publica el contenido de esta carpeta en cualquier hosting estático HTTPS gratuito que permita alojar archivos estáticos, o
-- En una computadora con Python: `python3 -m http.server 8000` y abre `http://IP-DE-LA-COMPUTADORA:8000` desde el teléfono en la misma Wi-Fi.
+## Uso
+1. Abre la aplicación y carga una fotografía original.
+2. Selecciona una herramienta de máscara y pinta directamente sobre la imagen.
+3. Usa deshacer para corregir trazos.
+4. Añade referencias y define instrucciones.
+5. Exporta el proyecto. El navegador descargará el manifiesto JSON, imágenes originales y máscara PNG por separado.
 
-Para instalar como aplicación: abre la URL en Chrome Android → menú ⋮ → Añadir a pantalla de inicio / Instalar aplicación.
+## Limitaciones honestas
+Esta versión implementa edición manual de máscaras y organización local. Todavía no genera imágenes con IA ni realiza segmentación automática. Las máscaras son mapas de color RGBA: verde = cuerpo protegido, azul = rostro protegido, naranja = zona editable y transparente = sin marcar. El motor generativo y la interpretación semántica se integrarán después de pruebas de compatibilidad con el OPPO Reno12 FS 5G (Dimensity 6300 / Mali-G57 MC2).
 
-## Siguiente fase
-Conectar un backend compatible con ComfyUI o un motor local. La conexión requerirá un equipo con GPU o un servicio externo; el OPPO Dimensity 6300 no es adecuado para ejecutar modelos grandes de difusión. La conexión a Internet por sí sola no proporciona GPU de inferencia gratuita.
+## Privacidad y coste
+No se suben fotografías a servidores y no se usan APIs de pago. La exportación se realiza desde el navegador. No hay suscripciones ni tokens.
