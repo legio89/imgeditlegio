@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101116"><meta name="description" content="Estudio móvil de edición fotográfica con referencias">
+<link rel="manifest" href="manifest.webmanifest"><link rel="stylesheet" href="styles.css">
+<title>AI Mobile Photo Studio</title>
+</head>
+<body>
+<header><div class="brand-mark">✦</div><div><h1>AI Mobile Photo Studio</h1><p>Tu espacio privado de edición</p></div><span class="local-tag">PROTOTIPO</span></header>
+<main>
+<section class="intro"><h2>Construye tu edición</h2><p>Sube una imagen base, añade referencias y define qué debe cambiar.</p></section>
+<section class="panel">
+<div class="section-head"><h3>01 · Fotografía original</h3><span>Obligatoria</span></div>
+<label class="upload-card hero-upload" for="baseImage"><span class="plus">＋</span><strong>Seleccionar fotografía base</strong><small>La imagen que quieres transformar</small><input id="baseImage" type="file" accept="image/*"></label>
+<div id="basePreview" class="preview hidden"></div>
+</section>
+<section class="panel">
+<div class="section-head"><h3>02 · Referencias</h3><span>Opcionales</span></div>
+<p class="hint">Cada referencia tiene una función independiente. Puedes cargar una imagen por categoría.</p>
+<div class="reference-grid">
+<label class="upload-card" for="faceRef"><span class="ref-icon">◉</span><strong>Rostro</strong><small>Identidad y facciones</small><input id="faceRef" type="file" accept="image/*"></label>
+<label class="upload-card" for="bodyRef"><span class="ref-icon">↕</span><strong>Cuerpo</strong><small>Complexión y proporciones</small><input id="bodyRef" type="file" accept="image/*"></label>
+<label class="upload-card" for="outfitRef"><span class="ref-icon">◇</span><strong>Vestuario</strong><small>Ropa y accesorios</small><input id="outfitRef" type="file" accept="image/*"></label>
+<label class="upload-card" for="poseRef"><span class="ref-icon">⌁</span><strong>Pose</strong><small>Postura y encuadre</small><input id="poseRef" type="file" accept="image/*"></label>
+<label class="upload-card" for="sceneRef"><span class="ref-icon">▧</span><strong>Escenario</strong><small>Fondo y ambiente</small><input id="sceneRef" type="file" accept="image/*"></label>
+<label class="upload-card" for="extraRef"><span class="ref-icon">＋</span><strong>Otra referencia</strong><small>Detalles adicionales</small><input id="extraRef" type="file" accept="image/*"></label>
+</div>
+<div id="refPreviews" class="ref-previews"></div>
+</section>
+<section class="panel">
+<div class="section-head"><h3>03 · Instrucciones</h3><span>Tu dirección creativa</span></div>
+<textarea id="prompt" rows="5" placeholder="Ejemplo: conserva el rostro y la complexión de la fotografía original. Sustituye el vestuario por el de referencia, adopta la pose indicada y utiliza el escenario proporcionado. Mantén iluminación y proporciones fotorealistas."></textarea>
+<div class="toggle-row"><div><strong>Priorizar identidad</strong><small>Indica al motor que no altere el rostro.</small></div><input type="checkbox" id="identity" checked></div>
+<div class="toggle-row"><div><strong>Conservar composición original</strong><small>Evitar cambios no solicitados.</small></div><input type="checkbox" id="composition" checked></div>
+<label class="field-label" for="quality">Objetivo de salida</label>
+<select id="quality"><option value="draft">Borrador / prueba</option><option value="standard" selected>Estándar</option><option value="high">Alta calidad (si el motor lo permite)</option></select>
+<button id="exportBtn" class="primary">Exportar instrucciones del proyecto</button>
+<p class="notice">Esta primera versión organiza tus referencias localmente y exporta un paquete de instrucciones. Todavía no ejecuta generación de IA: conectaremos un motor compatible en una siguiente fase.</p>
+</section>
+<section class="panel privacy"><strong>Privacidad primero</strong><p>Las imágenes se previsualizan en tu navegador. Esta versión no las sube a ningún servidor.</p><button id="clearBtn" class="secondary">Limpiar proyecto</button></section>
+</main>
+<footer>AI Mobile Photo Studio · MVP 0.1 · Procesamiento IA pendiente de integración</footer>
+<script src="app.js"></script>
+</body></html>
