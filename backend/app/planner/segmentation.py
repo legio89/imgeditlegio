@@ -195,9 +195,9 @@ def _write_mask_png(mask: MaskSpec, size: tuple[int, int], out_path: Path) -> Pa
         except Exception:  # noqa: BLE001 - sin silueta usable, rectángulos
             array = None
         if array is not None and array.ndim == 2 and array.size > 0:
-            canvas = Image.fromarray(
-                (array > 0).astype("uint8") * 255
-            ).resize((width, height), Image.NEAREST)
+            canvas = Image.fromarray((array > 0).astype("uint8") * 255).resize(
+                (width, height), Image.NEAREST
+            )
             if mask.invert:
                 canvas = Image.eval(canvas, lambda value: 255 - value)
             else:
@@ -215,9 +215,7 @@ def _write_mask_png(mask: MaskSpec, size: tuple[int, int], out_path: Path) -> Pa
                         fill=255,
                     )
                 canvas = Image.fromarray(
-                    ((np.asarray(canvas) > 0) & (np.asarray(rect) > 0)).astype(
-                        "uint8"
-                    )
+                    ((np.asarray(canvas) > 0) & (np.asarray(rect) > 0)).astype("uint8")
                     * 255
                 )
             if mask.feather_px > 0:
