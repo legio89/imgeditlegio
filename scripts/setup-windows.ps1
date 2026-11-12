@@ -19,6 +19,11 @@
 #      pasos que los necesitan y sigue con lo demás (clones y descargas
 #      de modelos). Ideal para adelantar la instalación en remoto.
 #
+# Python: el proyecto y ComfyUI están probados con Python 3.11/3.12 (igual
+# que el CI). Si el `python` por defecto es 3.13, el instalador busca el
+# lanzador `py -3.12` y, si no existe, instala Python 3.12 solo para el
+# usuario actual (sin permisos de administrador) en paralelo al 3.13.
+#
 # Es idempotente: se puede volver a correr sin romper nada; lo que ya
 # existe se salta. Al terminar, arranca todo con .\scripts\start-vextar.ps1
 
@@ -37,9 +42,18 @@ if ($NoAdmin) {
     Write-Host "MODO SIN ADMIN: nada pedirá permisos de administrador." -ForegroundColor Cyan
 }
 Write-Host "Repo: $RepoRoot"
+
+# El reloj del sistema tiene que estar bien: si la fecha está mal, las
+# descargas HTTPS fallan porque el certificado "no es válido todavía"
+# (NotTimeValid). En laptops viejas el reloj se atrasa si la pila del
+# BIOS está agotada; basta sincronizar en Configuración > Hora e idioma.
+if ((Get-Date).Year -lt 2026) {
+    Write-Host "  Aviso: la fecha del sistema es $((Get-Date).ToString('yyyy-MM-dd')). Si está mal, las descargas fallan por certificado. Activa 'Establecer hora automáticamente' y pulsa 'Sincronizar ahora' en Configuración > Hora e idioma, y vuelve a correr este script." -ForegroundColor Yellow
+}
 Write-Host ""
 
 $Skipped = @()
+$FailedDownloads = @()
 
 # ---------------------------------------------------------------- requisitos
 
@@ -85,22 +99,67 @@ if (-not $HasGit) {
     exit 1
 }
 
-$SkipPython = -not $HasPython
+# ------------------------------------------------------- selección de Python
+# El proyecto está probado con 3.11/3.12. Si el python por defecto es otra
+# versión (por ejemplo 3.13), se usa el lanzador `py -3.12` si existe; si
+# no, en modo sin admin se instala Python 3.12 solo para el usuario
+# (InstallAllUsers=0 no pide permisos de administrador).
+
+$PythonExe = "python"
+$PythonArgs = @()
+$PythonVersionOk = $false
 if ($HasPython) {
     $pythonVersion = (python --version) 2>$null
     Write-Host "Python: $pythonVersion"
-    if ($pythonVersion -notmatch "Python 3\.(11|12)\.") {
-        if ($NoAdmin) {
-            Write-Host "  La versión de Python no es 3.11/3.12 y en modo sin admin no se puede cambiar. Se saltan los pasos que necesitan Python." -ForegroundColor Yellow
-            $SkipPython = $true
-        } else {
-            Write-Host "  Se necesita Python 3.11 o 3.12. Instala 3.12 desde https://www.python.org/downloads/ (marca 'Add Python to PATH') y vuelve a correr este script." -ForegroundColor Red
-            exit 1
-        }
+    if ($pythonVersion -match "Python 3\.(11|12)\.") { $PythonVersionOk = $true }
+}
+
+if (-not $PythonVersionOk) {
+    $launcher312 = $false
+    if (Test-Command "py") {
+        try {
+            $launcherVersion = (py -3.12 --version) 2>$null
+            if ($launcherVersion -match "Python 3\.12\.") { $launcher312 = $true }
+        } catch { }
     }
-} else {
-    Write-Host "Python no encontrado. Se saltan los pasos que lo necesitan (entornos y dependencias); los clones y las descargas de modelos sí se hacen." -ForegroundColor Yellow
-    $Skipped += "Python (entornos y dependencias)"
+    if ($launcher312) {
+        Write-Host "Se usará Python 3.12 con el lanzador 'py -3.12' (el python por defecto es otra versión)."
+        $PythonExe = "py"
+        $PythonArgs = @("-3.12")
+        $PythonVersionOk = $true
+    } elseif ($NoAdmin) {
+        Write-Host "Instalando Python 3.12 solo para este usuario (sin admin, en paralelo al 3.13)..."
+        $pyInstaller = Join-Path $env:TEMP "python-3.12.10-amd64.exe"
+        try {
+            Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" -OutFile $pyInstaller -UseBasicParsing
+        } catch {
+            Write-Host "  No se pudo descargar el instalador de Python 3.12: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+        if ((Test-Path $pyInstaller) -and ((Get-Item $pyInstaller).Length -gt 1MB)) {
+            Start-Process -FilePath $pyInstaller -ArgumentList "/quiet", "InstallAllUsers=0", "PrependPath=0", "Include_launcher=1", "Include_test=0" -Wait
+            try {
+                $launcherVersion = (py -3.12 --version) 2>$null
+                if ($launcherVersion -match "Python 3\.12\.") {
+                    Write-Host "Python 3.12 instalado. Se usará con el lanzador 'py -3.12'."
+                    $PythonExe = "py"
+                    $PythonArgs = @("-3.12")
+                    $PythonVersionOk = $true
+                }
+            } catch { }
+        }
+        if (-not $PythonVersionOk) {
+            Write-Host "  No se pudo dejar Python 3.12 listo. Se saltan los pasos que lo necesitan." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  Se necesita Python 3.11 o 3.12. Instala 3.12 desde https://www.python.org/downloads/ (marca 'Add Python to PATH') y vuelve a correr este script." -ForegroundColor Red
+        exit 1
+    }
+}
+
+$SkipPython = -not $PythonVersionOk
+if ($SkipPython) {
+    Write-Host "Python 3.11/3.12 no disponible. Se saltan los pasos que lo necesitan (entornos y dependencias); los clones y las descargas de modelos sí se hacen." -ForegroundColor Yellow
+    $Skipped += "Python 3.12 (entornos y dependencias)"
 }
 
 $SkipNode = -not $HasNode
@@ -127,7 +186,7 @@ $BackendDir = Join-Path $RepoRoot "backend"
 if (-not $SkipPython) {
     $BackendVenv = Join-Path $BackendDir ".venv"
     if (-not (Test-Path (Join-Path $BackendVenv "Scripts\python.exe"))) {
-        python -m venv $BackendVenv
+        & $PythonExe @PythonArgs -m venv $BackendVenv
     }
     $BackendPython = Join-Path $BackendVenv "Scripts\python.exe"
     & $BackendPython -m pip install --upgrade pip --quiet
@@ -138,7 +197,7 @@ if (-not $SkipPython) {
     }
     Write-Host "  Backend listo."
 } else {
-    Write-Host "  Omitido (sin Python)."
+    Write-Host "  Omitido (sin Python 3.11/3.12)."
 }
 Write-Host ""
 
@@ -149,6 +208,17 @@ $FrontendDir = Join-Path $RepoRoot "frontend"
 if (-not $SkipNode) {
     Push-Location $FrontendDir
     npm install
+    # Vite necesita el binario de esbuild; si npm no ejecutó su script de
+    # instalación, el binario falta y el frontend no arranca. Se comprueba
+    # el archivo y se reconstruye si hace falta.
+    $esbuildBin = Join-Path $FrontendDir "node_modules\@esbuild\win32-x64\esbuild.exe"
+    if (-not (Test-Path $esbuildBin)) {
+        Write-Host "  No está el binario de esbuild; reconstruyendo..." -ForegroundColor Yellow
+        npm rebuild esbuild
+        if (-not (Test-Path $esbuildBin)) {
+            Write-Host "  Aviso: esbuild sigue sin su binario. Prueba 'npm rebuild esbuild' a mano en frontend/." -ForegroundColor Yellow
+        }
+    }
     Pop-Location
     Write-Host "  Frontend listo."
 } else {
@@ -167,7 +237,7 @@ if (-not (Test-Path (Join-Path $ComfyDir "main.py"))) {
 if (-not $SkipPython) {
     $ComfyVenv = Join-Path $ComfyDir "venv"
     if (-not (Test-Path (Join-Path $ComfyVenv "Scripts\python.exe"))) {
-        python -m venv $ComfyVenv
+        & $PythonExe @PythonArgs -m venv $ComfyVenv
     }
     $ComfyPython = Join-Path $ComfyVenv "Scripts\python.exe"
     & $ComfyPython -m pip install --upgrade pip --quiet
@@ -176,7 +246,7 @@ if (-not $SkipPython) {
     & $ComfyPython -m pip install torch-directml
     Write-Host "  ComfyUI listo."
 } else {
-    Write-Host "  Entorno de ComfyUI omitido (sin Python). El clon ya está."
+    Write-Host "  Entorno de ComfyUI omitido (sin Python 3.11/3.12). El clon ya está."
 }
 Write-Host ""
 
@@ -225,7 +295,15 @@ function Get-Model {
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $Destination) | Out-Null
     Write-Host "  Descargando $(Split-Path $Destination -Leaf) ..."
-    Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+    } catch {
+        # Una descarga fallida (red, certificado, reloj del sistema) no
+        # aborta el resto: se reporta al final y se reintenta al volver
+        # a correr el script.
+        Write-Host "  No se pudo descargar $(Split-Path $Destination -Leaf): $($_.Exception.Message)" -ForegroundColor Yellow
+        $script:FailedDownloads += $Destination
+    }
 }
 
 $Models = @(
@@ -247,7 +325,7 @@ Write-Host ""
 if (-not $NoSam) {
     Write-Host "[6/6] Modelo SAM (segmentación real, opcional)..." -ForegroundColor Cyan
     Get-Model -Url "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt" -Destination (Join-Path $ModelsDir "sam2.1_b.pt")
-    Write-Host "  SAM listo."
+    Write-Host "  SAM listo (o pendiente si la descarga falló; sin SAM la segmentación usa el stub)."
 } else {
     Write-Host "[6/6] SAM omitido (-NoSam). La segmentación usará el stub." -ForegroundColor Yellow
 }
@@ -258,6 +336,10 @@ if ($Skipped.Count -gt 0) {
     Write-Host "Omitido en modo sin admin (falta instalarlo):" -ForegroundColor Yellow
     $Skipped | ForEach-Object { Write-Host "  - $_" }
     Write-Host "Corre de nuevo .\scripts\setup-windows.ps1 (con admin) para completar lo omitido."
+}
+if ($FailedDownloads.Count -gt 0) {
+    Write-Host "Descargas fallidas (vuelve a correr el script para reintentarlas):" -ForegroundColor Yellow
+    $FailedDownloads | ForEach-Object { Write-Host "  - $_" }
 }
 Write-Host "Ahora arranca todo con:  .\scripts\start-vextar.ps1"
 Write-Host "La primera generación tarda minutos en esta laptop: es normal."

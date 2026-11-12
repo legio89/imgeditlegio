@@ -55,9 +55,17 @@ plan B si un script falla.
 
 - Windows 10 (la laptop ya lo tiene) o Linux.
 - Python 3.11 o 3.12 (descarga de python.org; marca "Add Python to PATH").
+  Si ya tienes Python 3.13, el instalador usa o instala Python 3.12 en
+  paralelo (el proyecto y ComfyUI están probados con 3.12, igual que el
+  CI); no hace falta desinstalar el 3.13.
 - Git (descarga de git-scm.com).
 - Espacio en disco: ~15 GB para SD 1.5 con todo; ~40 GB si además
   instalas FLUX.
+- Reloj del sistema en hora: si la fecha está mal, las descargas HTTPS
+  fallan porque el certificado "no es válido todavía" (NotTimeValid).
+  En laptops viejas el reloj se atrasa si la pila del BIOS está
+  agotada; basta sincronizar en Configuración > Hora e idioma >
+  Sincronizar ahora.
 
 ## 2. Instalar ComfyUI
 
