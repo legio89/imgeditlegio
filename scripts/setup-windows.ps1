@@ -141,15 +141,24 @@ if (-not $PythonVersionOk) {
     } elseif ($NoAdmin) {
         Write-Host "Instalando Python 3.12 solo para este usuario (sin admin, en paralelo al 3.13)..."
         $pyInstaller = Join-Path $env:TEMP "python-3.12.10-amd64.exe"
+        $downloaded = $false
         try {
             Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" -OutFile $pyInstaller -UseBasicParsing
+            $downloaded = (Test-Path $pyInstaller) -and ((Get-Item $pyInstaller).Length -gt 1MB)
         } catch {
             Write-Host "  No se pudo descargar el instalador de Python 3.12: $($_.Exception.Message)" -ForegroundColor Yellow
         }
-        if ((Test-Path $pyInstaller) -and ((Get-Item $pyInstaller).Length -gt 1MB)) {
-            Start-Process -FilePath $pyInstaller -ArgumentList "/quiet", "InstallAllUsers=0", "PrependPath=0", "Include_launcher=1", "Include_test=0" -Wait
+        if ($downloaded) {
+            $pyLog = Join-Path $env:TEMP "python312-install.log"
+            Start-Process -FilePath $pyInstaller -ArgumentList "/quiet", "InstallAllUsers=0", "PrependPath=0", "Include_launcher=1", "Include_test=0", "/log", $pyLog -Wait
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  El instalador de Python 3.12 terminó con código $LASTEXITCODE. Detalle en $pyLog" -ForegroundColor Yellow
+            }
+            # El instalador actualiza el PATH del usuario, pero la ventana
+            # de PowerShell ya abierta no lo ve: se recarga desde el registro.
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
             try {
-                $launcherVersion = (py -3.12 --version) 2>$null
+                $launcherVersion = (py -3.12 --version 2>&1)
                 if ($launcherVersion -match "Python 3\.12\.") {
                     Write-Host "Python 3.12 instalado. Se usará con el lanzador 'py -3.12'."
                     $PythonExe = "py"
@@ -157,6 +166,26 @@ if (-not $PythonVersionOk) {
                     $PythonVersionOk = $true
                 }
             } catch { }
+        }
+        if (-not $PythonVersionOk) {
+            # Sin lanzador: buscar el intérprete directamente en sus rutas
+            # habituales (la instalación por usuario va a %LOCALAPPDATA%).
+            $candidatePaths = @(
+                (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"),
+                "C:\Program Files\Python312\python.exe"
+            )
+            foreach ($candidate in $candidatePaths) {
+                if (Test-Path $candidate) {
+                    $candidateVersion = (& $candidate --version 2>&1)
+                    if ($candidateVersion -match "Python 3\.12\.") {
+                        Write-Host "Python 3.12 encontrado en: $candidate"
+                        $PythonExe = $candidate
+                        $PythonArgs = @()
+                        $PythonVersionOk = $true
+                        break
+                    }
+                }
+            }
         }
         if (-not $PythonVersionOk) {
             Write-Host "  No se pudo dejar Python 3.12 listo. Se saltan los pasos que lo necesitan." -ForegroundColor Yellow

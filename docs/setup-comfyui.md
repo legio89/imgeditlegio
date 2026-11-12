@@ -236,6 +236,14 @@ foto original en el Estudio, describe la edición y crea el trabajo.
 
 ## 8. Problemas habituales
 
+- **Python 3.12 no queda disponible tras instalarlo**: la ventana de
+  PowerShell ya abierta no ve el PATH nuevo. El instalador recarga el
+  PATH desde el registro y busca el intérprete en sus rutas habituales
+  (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`). Si aún así
+  no aparece, cierra PowerShell, ábrelo de nuevo y corre
+  `py -3.12 --version`: si imprime `Python 3.12.x`, ya estaba
+  instalado y solo era el PATH. El detalle de la instalación queda en
+  `%TEMP%\python312-install.log`.
 - **"ComfyUI no disponible"**: ComfyUI no está corriendo o la URL es
   otra. Revisa `VEXTAR_COMFYUI_URL` y que http://127.0.0.1:8188
   responda.
