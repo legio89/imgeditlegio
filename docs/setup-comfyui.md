@@ -22,6 +22,25 @@ La laptop ASUS X555DG tiene una GPU AMD Radeon R6 M340DX de 2 GB y
   `VEXTAR_COMFYUI_URL` a esa dirección: VEXTAR no exige que ComfyUI
   esté en la misma máquina.
 
+## 0.5 Camino rápido (recomendado): dos scripts
+
+Si solo quieres probar el concepto en tu laptop, no sigas los pasos
+manuales de abajo: hay dos scripts en el repo que hacen todo.
+
+```powershell
+git clone https://github.com/legio89/vextar-perro.git
+cd vextar-perro
+.\scripts\setup-windows.ps1    # una sola vez: revisa requisitos, instala
+                               # todo y descarga los modelos de SD 1.5 (~13 GB)
+.\scripts\start-vextar.ps1     # cada vez que quieras probar: arranca
+                               # ComfyUI + backend + frontend
+```
+
+El instalador es idempotente (se puede volver a correr; lo que ya existe
+se salta) y, si te falta Git, Python o Node, intenta instalarlo con
+winget. Los pasos manuales 1–6 de abajo quedan como referencia y como
+plan B si un script falla.
+
 ## 1. Requisitos
 
 - Windows 10 (la laptop ya lo tiene) o Linux.
@@ -107,11 +126,12 @@ Hugging Face y aceptar sus condiciones en la página del modelo.
 | `control_v11p_sd15_openpose.pth` | `lllyasviel/ControlNet-v1-1` (SD 1.5) |
 | ControlNet OpenPose para FLUX | El ecosistema FLUX cambia rápido; una opción conocida es el modelo Union de `InstantX/FLUX.1-dev-Controlnet-Union`. Guárdalo como `flux-controlnet-openpose.safetensors` o pasa su nombre en el parámetro `flux_controlnet` del trabajo. |
 
-### IP-Adapter (`models/ipadapter/`)
+### IP-Adapter (`models/ipadapter/` y `models/clip_vision/`)
 
-| Archivo | Origen |
-| --- | --- |
-| `ip-adapter_sd15.bin` | `h94/IP-Adapter` (SD 1.5) |
+| Archivo | Carpeta | Origen |
+| --- | --- | --- |
+| `ip-adapter_sd15.bin` | `models/ipadapter/` | `h94/IP-Adapter` (SD 1.5) |
+| `CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors` | `models/clip_vision/` | `h94/IP-Adapter`, archivo `models/image_encoder/model.safetensors` (codificador de visión que usa IP-Adapter) |
 
 Para FLUX, los modelos de IP-Adapter los documenta el propio
 ComfyUI-IPAdapter-Plus en su README. El planificador aún no cablea
@@ -133,8 +153,13 @@ pip install ultralytics
 
 Descarga `sam2.1_b.pt` de la release de SAM 2.1 de Meta
 (`facebookresearch/sam2`) y guárdalo, por ejemplo, en
-`C:\vextar\models\sam2.1_b.pt`. VEXTAR nunca descarga modelos solo:
-si el archivo no existe, usa el stub con una advertencia.
+`C:\vextar\models\sam2.1_b.pt`. El archivo de la release se llama
+`sam2.1_hiera_base_plus.pt`; el script `setup-windows.ps1` lo descarga
+directo de
+`https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt`
+y lo guarda como `sam2.1_b.pt` dentro del repo (`models\sam2.1_b.pt`).
+VEXTAR nunca descarga modelos solo: si el archivo no existe, usa el
+stub con una advertencia.
 
 ## 5. Variables de entorno de VEXTAR
 

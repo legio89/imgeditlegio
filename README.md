@@ -115,6 +115,23 @@ operaciones pasan por el backend de VEXTAR.
 
 ## Cómo correrlo en local
 
+### Prueba funcional en Windows (un comando)
+
+Para probar el concepto en tu propia laptop, con generación real y sin
+pagar nada:
+
+```powershell
+git clone https://github.com/legio89/vextar-perro.git
+cd vextar-perro
+.\scripts\setup-windows.ps1    # una sola vez: instala todo y descarga los modelos de SD 1.5 (~13 GB)
+.\scripts\start-vextar.ps1     # arranca ComfyUI + backend + frontend
+```
+
+El Estudio queda en http://localhost:5173. En hardware modesto cada
+generación tarda minutos: es normal, el backend espera hasta 30 min
+(`VEXTAR_COMFYUI_TIMEOUT_S`). Detalle completo en
+[docs/setup-comfyui.md](docs/setup-comfyui.md).
+
 ### Requisitos
 
 - Python 3.11+ y Node 20+.
@@ -145,6 +162,7 @@ Variables de entorno (todas opcionales):
 | `VEXTAR_COMFYUI_URL` | `http://127.0.0.1:8188` | URL de ComfyUI |
 | `VEXTAR_SEGMENTATION` | `stub` | `stub` o `sam` (SAM de ultralytics) |
 | `VEXTAR_SAM_MODEL` | `sam2.1_b.pt` | Ruta local al modelo SAM |
+| `VEXTAR_COMFYUI_TIMEOUT_S` | `1800` | Segundos máximos que el backend espera a ComfyUI por trabajo (30 min; en hardware modesto una generación SD 1.5 tarda minutos) |
 | `VEXTAR_MAX_UPLOAD_MB` | `50` | Tamaño máximo de subida |
 
 ### Frontend
@@ -194,7 +212,7 @@ modo `--lowvram`/DirectML; FLUX necesita una GPU mayor.
 ```bash
 cd backend
 pip install -r requirements-dev.txt
-python -m pytest tests -q        # 72 pruebas: API, trabajos, motor, intención, planificador, segmentación, FLUX, evaluación
+python -m pytest tests -q        # 73 pruebas: API, trabajos, motor, intención, planificador, segmentación, FLUX, evaluación
 ruff check app tests alembic
 ruff format --check app tests alembic
 alembic upgrade head             # verifica la migración inicial
@@ -235,15 +253,19 @@ evaluación automática de coherencia con reintentos (hasta 2) y
 puntuación visible en el trabajo; guía de instalación de ComfyUI en
 `docs/setup-comfyui.md`.
 
+Prueba local en Windows (v0.3.1–0.3.2): SAM ya escribe la silueta real
+de la persona en el PNG de la máscara; scripts
+`scripts/setup-windows.ps1` y `scripts/start-vextar.ps1` para instalar
+y arrancar todo en la laptop (ComfyUI con DirectML + SD 1.5, sin pagar
+nada); el timeout de ComfyUI subió a 30 min para hardware lento.
+
 Pendiente para generación real (requiere la laptop del usuario):
 
 - ComfyUI con modelos instalados y los custom nodes
-  ComfyUI-IPAdapter-Plus y comfyui_controlnet_aux.
+  ComfyUI-IPAdapter-Plus y comfyui_controlnet_aux (lo instala
+  `scripts/setup-windows.ps1`).
 - El modelo SAM descargado en local para activar la segmentación real
-  (`VEXTAR_SEGMENTATION=sam`).
+  (`VEXTAR_SEGMENTATION=sam`; también lo descarga el instalador).
 - Condicionamiento de identidad con IP-Adapter en los workflows FLUX
   (hoy solo en SD 1.5; con FLUX la identidad se condiciona por texto
   y por la imagen base).
-- La máscara PNG del plan sigue siendo rectangular: la silueta
-  completa de SAM aún no se escribe como máscara (la caja sí proviene
-  de SAM).

@@ -30,7 +30,10 @@ class Settings:
         )
         self.max_upload_mb: int = int(os.environ.get("VEXTAR_MAX_UPLOAD_MB", "50"))
         self.comfyui_timeout_s: int = int(
-            os.environ.get("VEXTAR_COMFYUI_TIMEOUT_S", "600")
+            # 30 min por defecto: en hardware modesto (GPU AMD con
+            # DirectML y --lowvram) una sola generación SD 1.5 puede
+            # tardar varios minutos; que sea lento no debe tumbar el trabajo.
+            os.environ.get("VEXTAR_COMFYUI_TIMEOUT_S", "1800")
         )
         # Segmentación: "stub" (estimación local, por defecto) o "sam"
         # (SAM de ultralytics con un modelo ya presente en local; si no
