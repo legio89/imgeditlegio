@@ -42,6 +42,17 @@ if ($NoAdmin) {
     Write-Host "MODO SIN ADMIN: nada pedirá permisos de administrador." -ForegroundColor Cyan
 }
 Write-Host "Repo: $RepoRoot"
+Write-Host "Fecha del sistema: $((Get-Date).ToString('yyyy-MM-dd HH:mm'))"
+
+# El repo es el canal por el que llegan las correcciones del instalador:
+# se actualiza solo antes de empezar (si falla, se sigue con lo que hay).
+if (Test-Path (Join-Path $RepoRoot ".git")) {
+    Write-Host "Actualizando el repo (git pull)..."
+    git -C $RepoRoot pull --ff-only 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  No se pudo actualizar el repo; se sigue con la versión local." -ForegroundColor Yellow
+    }
+}
 
 # El reloj del sistema tiene que estar bien: si la fecha está mal, las
 # descargas HTTPS fallan porque el certificado "no es válido todavía"
@@ -218,6 +229,8 @@ if (-not $SkipNode) {
         if (-not (Test-Path $esbuildBin)) {
             Write-Host "  Aviso: esbuild sigue sin su binario. Prueba 'npm rebuild esbuild' a mano en frontend/." -ForegroundColor Yellow
         }
+    } else {
+        Write-Host "  esbuild OK (binario presente). El aviso de npm durante la instalación no impide que el frontend arranque."
     }
     Pop-Location
     Write-Host "  Frontend listo."
@@ -302,6 +315,9 @@ function Get-Model {
         # aborta el resto: se reporta al final y se reintenta al volver
         # a correr el script.
         Write-Host "  No se pudo descargar $(Split-Path $Destination -Leaf): $($_.Exception.Message)" -ForegroundColor Yellow
+        if ($_.Exception.Message -match "certific|NotTimeValid|SSL|TLS") {
+            Write-Host "  Parece un problema de certificado: casi siempre es la fecha/hora del sistema. Sincroniza el reloj en Configuración > Hora e idioma > Sincronizar ahora y vuelve a correr el script." -ForegroundColor Yellow
+        }
         $script:FailedDownloads += $Destination
     }
 }
