@@ -15,6 +15,8 @@ de la persona: torso, piernas, vestido completo, etc.
 
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 from typing import Protocol
 
@@ -29,7 +31,10 @@ except ImportError:  # pragma: no cover - depende del entorno
     cv2 = None
     np = None
 
+logger = logging.getLogger("vextar.segmentation")
+
 SOURCE_STUB = "stub-segmentation"
+SOURCE_SAM = "sam-segmentation"
 
 # Prenda -> (y_inicio, y_fin) como fracción de la altura de la persona.
 _GARMENT_BANDS: dict[str, tuple[float, float]] = {
@@ -171,24 +176,212 @@ class StubSegmentationService:
         )
 
     def write_mask(self, mask: MaskSpec, size: tuple[int, int], out_path: Path) -> Path:
-        width, height = size
-        canvas = Image.new("L", (width, height), 0)
-        draw = ImageDraw.Draw(canvas)
-        for region in mask.regions:
-            x_min, y_min, x_max, y_max = region.bbox
-            draw.rectangle(
-                [
-                    int(x_min * width),
-                    int(y_min * height),
-                    int(x_max * width),
-                    int(y_max * height),
-                ],
-                fill=255,
+        return _write_mask_png(mask, size, out_path)
+
+
+def _write_mask_png(mask: MaskSpec, size: tuple[int, int], out_path: Path) -> Path:
+    """Escribe una máscara como PNG (blanco = regenerar) y devuelve su ruta."""
+    width, height = size
+    canvas = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(canvas)
+    for region in mask.regions:
+        x_min, y_min, x_max, y_max = region.bbox
+        draw.rectangle(
+            [
+                int(x_min * width),
+                int(y_min * height),
+                int(x_max * width),
+                int(y_max * height),
+            ],
+            fill=255,
+        )
+    if mask.feather_px > 0:
+        canvas = canvas.filter(ImageFilter.GaussianBlur(mask.feather_px))
+    if mask.invert:
+        canvas = Image.eval(canvas, lambda value: 255 - value)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(out_path, format="PNG")
+    return out_path
+
+
+class SamSegmentationService:
+    """Segmentación real de la persona con SAM (ultralytics).
+
+    Requiere el paquete ``ultralytics`` instalado y un archivo de pesos
+    SAM ya presente en local (``VEXTAR_SAM_MODEL``). **Nunca descarga
+    modelos**: si el archivo no existe, el servicio no está disponible y
+    la factoría :func:`get_segmentation_service` recurre al stub.
+
+    SAM segmenta la persona, no las prendas: la región de prenda se
+    deriva como la banda proporcional de la prenda intersectada con la
+    silueta real de la persona. La máscara PNG sigue siendo un
+    rectángulo (la silueta completa es una mejora futura); la caja de la
+    persona sí proviene de la máscara real de SAM.
+    """
+
+    def __init__(self, model_path: Path | None = None) -> None:
+        self.model_path = Path(
+            model_path or os.environ.get("VEXTAR_SAM_MODEL", "sam2.1_b.pt")
+        )
+        self._model = None
+        self._mask_cache: dict[str, tuple[object, tuple[int, int]]] = {}
+
+    @classmethod
+    def available(cls, model_path: Path | None = None) -> tuple[bool, str]:
+        """Comprueba si SAM se puede usar sin descargar nada."""
+        path = Path(model_path or os.environ.get("VEXTAR_SAM_MODEL", "sam2.1_b.pt"))
+        try:
+            import ultralytics  # noqa: F401
+        except ImportError:
+            return False, "ultralytics no está instalado"
+        if not path.exists():
+            return False, f"modelo SAM no encontrado: {path}"
+        return True, ""
+
+    def _load_model(self):
+        if self._model is None:
+            from ultralytics import SAM
+
+            self._model = SAM(str(self.model_path))
+        return self._model
+
+    def _person_mask(self, image_path: Path) -> tuple[object, tuple[int, int]]:
+        """Máscara booleana (H, W) de la persona, o None si SAM no la halla."""
+        key = str(image_path)
+        if key in self._mask_cache:
+            return self._mask_cache[key]
+        with Image.open(image_path) as image:
+            width, height = image.size
+        result: tuple[object, tuple[int, int]] = (None, (width, height))
+        if np is not None:
+            try:
+                model = self._load_model()
+                results = model.predict(str(image_path), verbose=False)
+                mask = self._largest_mask(results)
+                if mask is not None:
+                    result = (mask, (width, height))
+            except Exception:  # noqa: BLE001 - SAM nunca debe romper el trabajo
+                logger.warning(
+                    "SAM falló para %s; se usa la caja genérica.", image_path
+                )
+        self._mask_cache[key] = result
+        return result
+
+    @staticmethod
+    def _largest_mask(results) -> object | None:
+        """La máscara de mayor área del primer resultado, o None."""
+        if not results:
+            return None
+        masks = getattr(results[0], "masks", None)
+        data = getattr(masks, "data", None) if masks is not None else None
+        if data is None:
+            return None
+        if hasattr(data, "cpu"):
+            data = data.cpu().numpy()
+        array = np.asarray(data)
+        if array.ndim != 3 or array.shape[0] == 0:
+            return None
+        areas = array.reshape(array.shape[0], -1).sum(axis=1)
+        return array[int(np.argmax(areas))] > 0
+
+    def _image_size(self, image_path: Path) -> tuple[int, int]:
+        with Image.open(image_path) as image:
+            return image.size
+
+    def segment_person(self, image_path: Path) -> RegionSpec:
+        width, height = self._image_size(image_path)
+        mask, _ = self._person_mask(image_path)
+        if mask is None or np is None:
+            return RegionSpec(
+                label="person",
+                kind="person",
+                bbox=(0.15, 0.05, 0.85, 0.95),
+                confidence=0.3,
+                source=SOURCE_SAM,
             )
-        if mask.feather_px > 0:
-            canvas = canvas.filter(ImageFilter.GaussianBlur(mask.feather_px))
-        if mask.invert:
-            canvas = Image.eval(canvas, lambda value: 255 - value)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        canvas.save(out_path, format="PNG")
-        return out_path
+        ys, xs = np.nonzero(mask)
+        if len(xs) == 0:
+            return RegionSpec(
+                label="person",
+                kind="person",
+                bbox=(0.15, 0.05, 0.85, 0.95),
+                confidence=0.3,
+                source=SOURCE_SAM,
+            )
+        return RegionSpec(
+            label="person",
+            kind="person",
+            bbox=(
+                _clamp01(float(xs.min()) / width),
+                _clamp01(float(ys.min()) / height),
+                _clamp01((float(xs.max()) + 1) / width),
+                _clamp01((float(ys.max()) + 1) / height),
+            ),
+            confidence=0.85,
+            source=SOURCE_SAM,
+        )
+
+    def garment_mask(self, image_path: Path, garment: str) -> MaskSpec:
+        person = self.segment_person(image_path)
+        x_min, y_min, x_max, y_max = person.bbox
+        person_h = y_max - y_min
+        band = _GARMENT_BANDS.get(garment.lower(), _GARMENT_BANDS["ropa"])
+        region = RegionSpec(
+            label=f"garment:{garment}",
+            kind="garment",
+            bbox=(
+                _clamp01(x_min),
+                _clamp01(y_min + person_h * band[0]),
+                _clamp01(x_max),
+                _clamp01(y_min + person_h * band[1]),
+            ),
+            confidence=0.85 if person.confidence > 0.5 else 0.3,
+            source=SOURCE_SAM,
+        )
+        return MaskSpec(
+            target=f"garment:{garment}",
+            regions=[region],
+            feather_px=8,
+            invert=False,
+            notes=(
+                "Región de prenda intersectada con la silueta de la persona "
+                "segmentada por SAM. La máscara PNG es el rectángulo de esa "
+                "región."
+            ),
+        )
+
+    def background_mask(self, image_path: Path) -> MaskSpec:
+        person = self.segment_person(image_path)
+        return MaskSpec(
+            target="background",
+            regions=[person],
+            feather_px=10,
+            invert=True,
+            notes=(
+                "La máscara se invierte: se regenera todo excepto la "
+                "persona segmentada por SAM."
+            ),
+        )
+
+    def write_mask(self, mask: MaskSpec, size: tuple[int, int], out_path: Path) -> Path:
+        return _write_mask_png(mask, size, out_path)
+
+
+def get_segmentation_service() -> SegmentationService:
+    """Servicio de segmentación según ``VEXTAR_SEGMENTATION``.
+
+    ``stub`` (por defecto): estimación geométrica local. ``sam``: SAM de
+    ultralytics con un modelo ya presente en local; si no está
+    disponible, se registra una advertencia y se recurre al stub. Nunca
+    se descarga ningún modelo.
+    """
+    choice = os.environ.get("VEXTAR_SEGMENTATION", "stub").lower()
+    if choice == "sam":
+        ok, reason = SamSegmentationService.available()
+        if ok:
+            return SamSegmentationService()
+        logger.warning("Segmentación SAM no disponible (%s); se usa el stub.", reason)
+        return StubSegmentationService()
+    if choice != "stub":
+        logger.warning("VEXTAR_SEGMENTATION='%s' desconocido; se usa el stub.", choice)
+    return StubSegmentationService()

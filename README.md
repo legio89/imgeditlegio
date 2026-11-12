@@ -50,6 +50,10 @@ operaciones pasan por el backend de VEXTAR.
   concreto de ejecución —pasos legibles, máscaras y un workflow de
   ComfyUI listo para el motor— y lo guarda en el trabajo
   (`parameters["plan"]` y `parameters["comfyui_workflow"]`).
+  - **Familias de modelos**: `parameters["model_family"]` elige
+    `sd15` (por defecto, checkpoint + IP-Adapter) o `flux` (DualCLIP,
+    UNET, VAE, FluxGuidance; sin IP-Adapter cableado todavía, el plan
+    lo advierte). La mejora fotográfica es igual en ambas familias.
   - **Vestimenta** (`outfit_change` / `outfit_remove`): inpainting de la
     región de la prenda con IP-Adapter de identidad; la eliminación
     funciona aunque no haya referencia de atuendo, porque la
@@ -65,16 +69,27 @@ operaciones pasan por el backend de VEXTAR.
     y nota de perspectiva por modelo, inpainting secuencial por región y
     armonización final.
   - **Segmentación** (`app/planner/segmentation.py`): interfaz
-    `SegmentationService` con un stub local (OpenCV/Pillow, marcado
-    siempre como stub) que estima la caja de la persona y bandas de
-    prenda; los modelos reales de segmentación se conectan ahí sin
-    cambiar el resto. Las máscaras del plan se escriben como PNG en
+    `SegmentationService` con dos implementaciones: el stub local
+    (OpenCV/Pillow, marcado siempre como stub) y SAM de ultralytics
+    (`SamSegmentationService`, elegido con `VEXTAR_SEGMENTATION=sam`
+    y un modelo ya presente en local en `VEXTAR_SAM_MODEL`; si no está
+    disponible, recurre al stub con una advertencia y nunca descarga
+    modelos). Las máscaras del plan se escriben como PNG en
     `processed/` y se registran como assets.
+- Evaluación automática (`app/evaluation.py`, paso 9 de la filosofía):
+  después de cada ejecución, el resultado se puntúa 0..1 por similitud
+  estructural (SSIM), dimensiones y cobertura de la máscara. Con un
+  motor real y puntuación por debajo de 0.6, el trabajo se reintenta
+  como mucho 2 veces con denoise y semilla ajustados y se guarda el
+  mejor resultado; con el motor simulador la evaluación es solo
+  informativa. La puntuación queda en `parameters["evaluation"]` y
+  como evento durable `evaluated`.
 - Cola de trabajos: la API crea el trabajo en estado `queued` y un ejecutor
   en segundo plano lo procesa: primero planifica (evento durable
-  `planned`), luego ejecuta el motor con el workflow del plan y registra
-  eventos durables (`queued → started → planned → progress →
-  completed/failed`).
+  `planned`), luego ejecuta el motor con el workflow del plan, evalúa
+  el resultado (evento `evaluated`, con reintentos si hace falta) y
+  registra eventos durables (`queued → started → planned → progress →
+  evaluated → completed/failed`).
 - Motor enchufable (`app/engine/`): interfaz `GenerationEngine` con dos
   implementaciones:
   - **`stub`** (por defecto): simulador local sin GPU ni ComfyUI. Produce
@@ -92,8 +107,10 @@ operaciones pasan por el backend de VEXTAR.
 - **React + TypeScript + Vite**, PWA (manifest + service worker).
 - Vistas: **Perfiles** (crear perfiles y subir referencias por categoría),
   **Proyectos**, **Estudio** (subir original, describir la intención,
-  analizarla y lanzar el trabajo), **Historial** (trabajos con parámetros y
-  eventos) y **Comparar** (original vs. procesada).
+  analizarla, elegir familia de modelos y referencias de pose y de
+  atuendo, y lanzar el trabajo con seguimiento en vivo y puntuación de
+  coherencia), **Historial** (trabajos con parámetros y eventos) y
+  **Comparar** (original vs. procesada).
 - Interfaz en español.
 
 ## Cómo correrlo en local
@@ -126,6 +143,8 @@ Variables de entorno (todas opcionales):
 | `VEXTAR_DATABASE_URL` | `sqlite:///<data>/vextar.db` | URL de la base de datos |
 | `VEXTAR_ENGINE` | `stub` | `stub` o `comfyui` |
 | `VEXTAR_COMFYUI_URL` | `http://127.0.0.1:8188` | URL de ComfyUI |
+| `VEXTAR_SEGMENTATION` | `stub` | `stub` o `sam` (SAM de ultralytics) |
+| `VEXTAR_SAM_MODEL` | `sam2.1_b.pt` | Ruta local al modelo SAM |
 | `VEXTAR_MAX_UPLOAD_MB` | `50` | Tamaño máximo de subida |
 
 ### Frontend
@@ -145,6 +164,13 @@ npm run preview
 
 ### Generación real con ComfyUI
 
+Guía completa en [docs/setup-comfyui.md](docs/setup-comfyui.md):
+instalación de ComfyUI, modelos (SD 1.5 y FLUX), custom nodes
+(ComfyUI-IPAdapter-Plus, comfyui_controlnet_aux), SAM opcional,
+variables de entorno y problemas habituales. Nota de hardware: la
+laptop del usuario (ASUS X555DG, GPU AMD de 2 GB) puede con SD 1.5 en
+modo `--lowvram`/DirectML; FLUX necesita una GPU mayor.
+
 1. Instala y arranca ComfyUI en tu máquina (por defecto en
    `http://127.0.0.1:8188`) con los modelos que quieras usar
    (FLUX, Stable Diffusion, ControlNet, IP-Adapter, Real-ESRGAN…).
@@ -154,24 +180,21 @@ npm run preview
 2. Arranca el backend con `VEXTAR_ENGINE=comfyui`
    (y `VEXTAR_COMFYUI_URL` si tu ComfyUI está en otra dirección).
 3. Los trabajos ya no necesitan un workflow manual: el planificador
-   construye uno por operación (inpainting, ControlNet, upscaler) y el
-   motor lo envía a ComfyUI. Si quieres usar tu propio workflow,
-   todavía puedes pasarlo en `parameters.comfyui_workflow`; si no se
-   proporciona, se usa el ejemplo incluido en
+   construye uno por operación (inpainting, ControlNet, upscaler) en
+   la familia elegida (`sd15` o `flux`) y el motor lo envía a ComfyUI.
+   Si quieres usar tu propio workflow, todavía puedes pasarlo en
+   `parameters.comfyui_workflow`; si no se proporciona, se usa el ejemplo incluido en
    `backend/app/engine/workflows/example_txt2img.json`
    (requiere el checkpoint `v1-5-pruned-emaonly.safetensors`).
-
-> Nota: los workflows del planificador usan el formato SD 1.5
-> (checkpoint, VAE, KSampler). Para FLUX hace falta una variante de
-> los constructores con sus nodos propios; la estructura del
-> planificador ya lo permite (ver "Pendiente" abajo).
+4. Cada resultado se evalúa automáticamente (SSIM, dimensiones,
+   cobertura de máscara) y se reintenta hasta 2 veces si puntúa bajo.
 
 ## Tests y CI
 
 ```bash
 cd backend
 pip install -r requirements-dev.txt
-python -m pytest tests -q        # 46 pruebas: API, trabajos, motor, intención, planificador, segmentación
+python -m pytest tests -q        # 72 pruebas: API, trabajos, motor, intención, planificador, segmentación, FLUX, evaluación
 ruff check app tests alembic
 ruff format --check app tests alembic
 alembic upgrade head             # verifica la migración inicial
@@ -203,15 +226,24 @@ guardadas como assets y plan reproducible en cada trabajo. Sin intención
 identificable el trabajo falla con un motivo claro en lugar de producir
 un resultado arbitrario.
 
-Pendiente para generación real:
+Funcionalidad completa (v0.3.0): variante FLUX de los workflows
+(DualCLIPLoader, UNETLoader, VAELoader, FluxGuidance) elegible por
+trabajo; segmentación real con SAM de ultralytics tras la misma
+interfaz (con degradación al stub si no hay modelo); selectores de
+referencia de pose y de atuendo y de familia de modelos en el Estudio;
+evaluación automática de coherencia con reintentos (hasta 2) y
+puntuación visible en el trabajo; guía de instalación de ComfyUI en
+`docs/setup-comfyui.md`.
 
-- ComfyUI con modelos instalados en la máquina del usuario y los custom
-  nodes ComfyUI-IPAdapter-Plus y comfyui_controlnet_aux.
-- Segmentación real (p. ej. SAM o segmentación de prendas) que sustituya
-  al stub; la interfaz ya existe y el planificador no cambia.
-- Variante FLUX de los workflows del planificador (hoy son SD 1.5).
-- Referencias de pose y de atuendo desde la interfaz del Estudio
-  (hoy se pueden pasar como `pose_reference_asset_id` /
-  `outfit_reference_asset_id` en los parámetros del trabajo).
-- Evaluación automática de coherencia del resultado (paso 9 de la
-  filosofía) y reintentos.
+Pendiente para generación real (requiere la laptop del usuario):
+
+- ComfyUI con modelos instalados y los custom nodes
+  ComfyUI-IPAdapter-Plus y comfyui_controlnet_aux.
+- El modelo SAM descargado en local para activar la segmentación real
+  (`VEXTAR_SEGMENTATION=sam`).
+- Condicionamiento de identidad con IP-Adapter en los workflows FLUX
+  (hoy solo en SD 1.5; con FLUX la identidad se condiciona por texto
+  y por la imagen base).
+- La máscara PNG del plan sigue siendo rectangular: la silueta
+  completa de SAM aún no se escribe como máscara (la caja sí proviene
+  de SAM).

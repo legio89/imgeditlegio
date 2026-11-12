@@ -11,6 +11,13 @@ El flujo es:
 
 El ejecutor es síncrono por trabajo (un hilo de FastAPI BackgroundTasks);
 la cola se puede escalar después a un worker dedicado sin cambiar la API.
+
+Después de cada ejecución del motor, el resultado se evalúa con
+``app.evaluation`` (paso 9 de la filosofía): similitud estructural,
+dimensiones y cobertura de máscara. Con un motor real y una puntuación
+por debajo del umbral, el trabajo se reintenta como mucho 2 veces con
+denoise y semilla ajustados; se guarda el mejor resultado. Con el motor
+simulador la evaluación es solo informativa y nunca reintenta.
 """
 
 from __future__ import annotations
@@ -23,6 +30,14 @@ from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..engine import build_engine
+from ..engine.base import EngineError, EngineResult
+from ..evaluation import (
+    MAX_ATTEMPTS,
+    EvaluationResult,
+    evaluate_result,
+    retry_adjustments,
+    should_retry,
+)
 from ..models import (
     Generation,
     ImageAsset,
@@ -32,7 +47,12 @@ from ..models import (
     ModelProfile,
     ReferenceImage,
 )
-from ..planner import MaskSpec, PlanRequest, StubSegmentationService, build_plan
+from ..planner import (
+    MaskSpec,
+    PlanRequest,
+    build_plan,
+    get_segmentation_service,
+)
 from ..storage import AssetKind, kind_dir, store_generated_image
 
 
@@ -103,7 +123,7 @@ def _store_plan_masks(
     """
     if plan.mask is None:
         return []
-    segmentation = StubSegmentationService()
+    segmentation = get_segmentation_service()
     mask_dir = kind_dir(AssetKind.PROCESSED)
     paths: list[Path] = []
     if job.operation == "multi_model" and plan.composition:
@@ -194,6 +214,37 @@ def _plan_job(db: Session, job: Job, input_path: Path, references) -> None:
         db.commit()
 
 
+def _evaluate_attempt(
+    db: Session, job: Job, input_path: Path, result: EngineResult, attempt_no: int
+) -> EvaluationResult:
+    """Evalúa el resultado de un intento y registra el evento durable."""
+    tmp_path = kind_dir(AssetKind.PROCESSED) / f"eval-{job.id}-{attempt_no}.tmp"
+    tmp_path.write_bytes(result.output_bytes)
+    try:
+        parameters = dict(job.parameters or {})
+        mask_path = parameters.get("mask_path")
+        evaluation = evaluate_result(
+            input_path,
+            tmp_path,
+            operation=job.operation,
+            plan=parameters.get("plan"),
+            metadata=result.metadata,
+            mask_path=Path(mask_path) if mask_path else None,
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    add_event(
+        db,
+        job.id,
+        "evaluated",
+        f"Evaluación de coherencia (intento {attempt_no}): "
+        f"{evaluation.score:.2f} "
+        f"({'aprobada' if evaluation.passed else 'por debajo del umbral'}).",
+        {"attempt": attempt_no, **evaluation.to_dict()},
+    )
+    return evaluation
+
+
 def run_job(job_id: int) -> None:
     """Ejecuta un trabajo hasta un estado terminal. Idempotente encolado."""
     db = SessionLocal()
@@ -220,22 +271,46 @@ def run_job(job_id: int) -> None:
                 raise FileNotFoundError(f"Archivo original no encontrado: {input_path}")
 
             references = _reference_paths(db, list(job.profile_ids or []))
-            _plan_job(db, job, input_path, references)
             engine = build_engine()
-            progress(f"Motor seleccionado: {engine.name}")
-            result = engine.execute(
-                operation=job.operation,
-                intent_text=job.intent_text,
-                input_path=input_path,
-                reference_paths=references,
-                parameters=dict(job.parameters or {}),
-                progress=progress,
-            )
+            best_result: EngineResult | None = None
+            best_evaluation: EvaluationResult | None = None
+            best_metadata: dict = {}
+            attempts = 0
+            while attempts < MAX_ATTEMPTS:
+                if attempts > 0:
+                    job.parameters = retry_adjustments(
+                        dict(job.parameters or {}), attempts
+                    )
+                    db.commit()
+                    progress(
+                        f"Reintento {attempts + 1} de {MAX_ATTEMPTS} "
+                        "con parámetros ajustados."
+                    )
+                _plan_job(db, job, input_path, references)
+                progress(f"Motor seleccionado: {engine.name}")
+                result = engine.execute(
+                    operation=job.operation,
+                    intent_text=job.intent_text,
+                    input_path=input_path,
+                    reference_paths=references,
+                    parameters=dict(job.parameters or {}),
+                    progress=progress,
+                )
+                attempts += 1
+                evaluation = _evaluate_attempt(db, job, input_path, result, attempts)
+                if best_evaluation is None or evaluation.score > best_evaluation.score:
+                    best_result = result
+                    best_evaluation = evaluation
+                    best_metadata = result.metadata
+                if not should_retry(evaluation, attempts):
+                    break
+            if best_result is None or best_evaluation is None:
+                raise EngineError("El motor no devolvió ningún resultado.")
 
             stored = store_generated_image(
-                result.output_bytes,
-                filename=result.filename or f"result-{uuid.uuid4().hex[:8]}.jpg",
-                content_type=result.content_type,
+                best_result.output_bytes,
+                filename=best_result.filename or f"result-{uuid.uuid4().hex[:8]}.jpg",
+                content_type=best_result.content_type,
             )
             output_asset = ImageAsset(
                 kind=AssetKind.RESULT,
@@ -249,7 +324,9 @@ def run_job(job_id: int) -> None:
             job.status = JobStatus.COMPLETED
             job.parameters = {
                 **(job.parameters or {}),
-                "engine_metadata": result.metadata,
+                "engine_metadata": best_metadata,
+                "evaluation": best_evaluation.to_dict(),
+                "attempts": attempts,
             }
             db.add(
                 Generation(

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { IntentAnalysis, Job, Profile, Project } from "../types";
-import { OPERATION_LABELS } from "../types";
+import type { IntentAnalysis, Job, Profile, Project, Reference } from "../types";
+import { CATEGORY_LABELS, OPERATION_LABELS } from "../types";
 
 export default function StudioPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -14,7 +14,22 @@ export default function StudioPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [poseReferenceAssetId, setPoseReferenceAssetId] = useState<number | undefined>(
+    undefined,
+  );
+  const [outfitReferenceAssetId, setOutfitReferenceAssetId] = useState<
+    number | undefined
+  >(undefined);
+  const [modelFamily, setModelFamily] = useState<"sd15" | "flux">("sd15");
   const pollRef = useRef<number | undefined>(undefined);
+
+  // Referencias de los perfiles seleccionados, para los selectores de pose
+  // y de atuendo: cada opción es un asset de un perfil.
+  const selectedReferences: { profile: Profile; reference: Reference }[] = profiles
+    .filter((profile) => selectedProfiles.includes(profile.id))
+    .flatMap((profile) =>
+      profile.references.map((reference) => ({ profile, reference })),
+    );
 
   useEffect(() => {
     api.listProjects().then((items) => {
@@ -29,6 +44,10 @@ export default function StudioPage() {
     setSelectedProfiles((current) =>
       current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
     );
+    // Al cambiar los perfiles, las referencias elegidas pueden dejar de
+    // existir: se limpian para no enviar un asset de otro perfil.
+    setPoseReferenceAssetId(undefined);
+    setOutfitReferenceAssetId(undefined);
   };
 
   const analyze = async () => {
@@ -52,12 +71,22 @@ export default function StudioPage() {
     setJob(null);
     try {
       const asset = await api.uploadAsset(file, "original", projectId);
+      const parameters: Record<string, unknown> = {
+        model_family: modelFamily,
+      };
+      if (poseReferenceAssetId !== undefined) {
+        parameters.pose_reference_asset_id = poseReferenceAssetId;
+      }
+      if (outfitReferenceAssetId !== undefined) {
+        parameters.outfit_reference_asset_id = outfitReferenceAssetId;
+      }
       const created = await api.createJob({
         project_id: projectId,
         intent_text: intentText.trim(),
         input_asset_id: asset.id,
         profile_ids: selectedProfiles,
         operation: analysis?.operation,
+        parameters,
       });
       setJob(created);
       pollRef.current = window.setInterval(async () => {
@@ -120,6 +149,72 @@ export default function StudioPage() {
           </label>
         ))}
 
+        {selectedProfiles.length > 0 && (
+          <>
+            <label htmlFor="studio-pose-reference">Referencia de pose</label>
+            <select
+              id="studio-pose-reference"
+              value={poseReferenceAssetId ?? ""}
+              onChange={(e) =>
+                setPoseReferenceAssetId(
+                  e.target.value ? Number(e.target.value) : undefined,
+                )
+              }
+            >
+              <option value="">Sin referencia (usa la pose de la foto)</option>
+              {selectedReferences.map(({ profile, reference }) => (
+                <option key={reference.asset_id} value={reference.asset_id}>
+                  {profile.name} — {CATEGORY_LABELS[reference.category]} —{" "}
+                  {reference.asset.filename}
+                  {reference.label ? ` (${reference.label})` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="muted">
+              Para cambios de pose: la imagen de referencia marca la postura nueva
+              (ControlNet OpenPose).
+            </p>
+
+            <label htmlFor="studio-outfit-reference">Referencia de atuendo</label>
+            <select
+              id="studio-outfit-reference"
+              value={outfitReferenceAssetId ?? ""}
+              onChange={(e) =>
+                setOutfitReferenceAssetId(
+                  e.target.value ? Number(e.target.value) : undefined,
+                )
+              }
+            >
+              <option value="">Sin referencia (el cambio se guía por texto)</option>
+              {selectedReferences.map(({ profile, reference }) => (
+                <option key={reference.asset_id} value={reference.asset_id}>
+                  {profile.name} — {CATEGORY_LABELS[reference.category]} —{" "}
+                  {reference.asset.filename}
+                  {reference.label ? ` (${reference.label})` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="muted">
+              Para cambios de vestimenta: la imagen de referencia muestra el atuendo
+              nuevo. Quitar una prenda no necesita referencia.
+            </p>
+          </>
+        )}
+
+        <label htmlFor="studio-family">Familia de modelos</label>
+        <select
+          id="studio-family"
+          value={modelFamily}
+          onChange={(e) => setModelFamily(e.target.value as "sd15" | "flux")}
+        >
+          <option value="sd15">Stable Diffusion 1.5 (con IP-Adapter)</option>
+          <option value="flux">FLUX.1 (mayor calidad, sin IP-Adapter)</option>
+        </select>
+        <p className="muted">
+          FLUX necesita sus modelos instalados en ComfyUI (ver la guía de instalación).
+          Con FLUX la identidad se condiciona por texto y por la imagen base.
+        </p>
+
         <label htmlFor="studio-file">Foto original</label>
         <input
           id="studio-file"
@@ -176,6 +271,17 @@ export default function StudioPage() {
           <p className="muted">
             Operación: {OPERATION_LABELS[job.operation] ?? job.operation} · Motor:{" "}
             {job.engine}
+            {typeof job.parameters?.evaluation === "object" &&
+              job.parameters.evaluation !== null && (
+                <>
+                  {" · Coherencia: "}
+                  {Math.round(
+                    ((job.parameters.evaluation as { score?: number }).score ?? 0) *
+                      100,
+                  )}
+                  %
+                </>
+              )}
           </p>
           {job.error && <div className="error">{job.error}</div>}
           <ul className="events">

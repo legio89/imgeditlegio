@@ -32,6 +32,11 @@ class Settings:
         self.comfyui_timeout_s: int = int(
             os.environ.get("VEXTAR_COMFYUI_TIMEOUT_S", "600")
         )
+        # Segmentación: "stub" (estimación local, por defecto) o "sam"
+        # (SAM de ultralytics con un modelo ya presente en local; si no
+        # está disponible se recurre al stub con una advertencia).
+        self.segmentation: str = os.environ.get("VEXTAR_SEGMENTATION", "stub").lower()
+        self.sam_model: str = os.environ.get("VEXTAR_SAM_MODEL", "sam2.1_b.pt")
 
     @property
     def originals_dir(self) -> Path:

@@ -20,7 +20,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .segmentation import SOURCE_STUB, SegmentationService, StubSegmentationService
+from .segmentation import (
+    SOURCE_STUB,
+    SegmentationService,
+    get_segmentation_service,
+)
 from .types import (
     CompositionSlot,
     MaskSpec,
@@ -32,6 +36,12 @@ from .types import (
 )
 from .workflows import (
     DEFAULT_CHECKPOINT,
+    DEFAULT_FLUX_CLIP_G,
+    DEFAULT_FLUX_CLIP_L,
+    DEFAULT_FLUX_CONTROLNET,
+    DEFAULT_FLUX_GUIDANCE,
+    DEFAULT_FLUX_UNET,
+    DEFAULT_FLUX_VAE,
     DEFAULT_INPAINT_CHECKPOINT,
     DEFAULT_OPENPOSE_MODEL,
     DEFAULT_UPSCALE_MODEL,
@@ -39,9 +49,60 @@ from .workflows import (
     build_background_workflow,
     build_composition_workflow,
     build_enhance_workflow,
+    build_flux_background_workflow,
+    build_flux_composition_workflow,
+    build_flux_outfit_workflow,
+    build_flux_pose_workflow,
     build_outfit_workflow,
     build_pose_workflow,
 )
+
+FLUX_IPADAPTER_WARNING = (
+    "Familia FLUX: el condicionamiento de identidad con IP-Adapter no está "
+    "cableado en este workflow (las variantes FLUX de IP-Adapter viven en "
+    "ComfyUI-IPAdapter-Plus con sus propios nodos). La identidad se "
+    "condiciona solo por texto y por la imagen base."
+)
+
+
+def _model_family(request: PlanRequest) -> str:
+    """Familia de modelos del plan: 'sd15' (por defecto) o 'flux'."""
+    family = str(request.parameters.get("model_family", "sd15")).lower()
+    if family not in ("sd15", "flux"):
+        raise PlanError(
+            f"Familia de modelos desconocida: '{family}'. Usa 'sd15' o 'flux'."
+        )
+    return family
+
+
+def _seed(request: PlanRequest) -> int:
+    try:
+        return int(request.parameters.get("seed", 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _denoise(request: PlanRequest, default: float) -> float:
+    value = request.parameters.get("denoise")
+    if value is None:
+        return default
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _flux_params(request: PlanRequest) -> dict:
+    return {
+        "unet": request.parameters.get("flux_unet", DEFAULT_FLUX_UNET),
+        "clip_l": request.parameters.get("flux_clip_l", DEFAULT_FLUX_CLIP_L),
+        "clip_g": request.parameters.get("flux_clip_g", DEFAULT_FLUX_CLIP_G),
+        "vae": request.parameters.get("flux_vae", DEFAULT_FLUX_VAE),
+        "guidance": float(
+            request.parameters.get("flux_guidance", DEFAULT_FLUX_GUIDANCE)
+        ),
+    }
+
 
 NEGATIVE_BASE = (
     "illustration, painting, cartoon, drawing, sculpture, 3d render, "
@@ -123,7 +184,7 @@ def build_plan(
             f"No se puede planificar la operación '{operation}': "
             "intención no identificada o no soportada."
         )
-    return builder(request, segmentation or StubSegmentationService())
+    return builder(request, segmentation or get_segmentation_service())
 
 
 def _plan_outfit_change(
@@ -141,17 +202,41 @@ def _plan_outfit_change(
         "natural fabric, coherent lighting, seamless integration"
     )
     negative = f"{NEGATIVE_BASE}, old outfit, previous clothing"
-    workflow = build_outfit_workflow(
-        input_filename=_input_filename(request),
-        mask_filename=MASK_FILENAME,
-        operation="outfit_change",
-        positive_prompt=positive,
-        negative_prompt=negative,
-        checkpoint=checkpoint,
-        identity_reference=identity,
-        outfit_reference=request.outfit_reference,
-    )
+    workflow: dict
+    family = _model_family(request)
+    if family == "flux":
+        workflow = build_flux_outfit_workflow(
+            input_filename=_input_filename(request),
+            mask_filename=MASK_FILENAME,
+            operation="outfit_change",
+            positive_prompt=positive,
+            negative_prompt=negative,
+            denoise=_denoise(request, 0.85),
+            seed=_seed(request),
+            **_flux_params(request),
+        )
+        models = {"model_family": "flux", **_flux_params(request)}
+    else:
+        workflow = build_outfit_workflow(
+            input_filename=_input_filename(request),
+            mask_filename=MASK_FILENAME,
+            operation="outfit_change",
+            positive_prompt=positive,
+            negative_prompt=negative,
+            checkpoint=checkpoint,
+            identity_reference=identity,
+            outfit_reference=request.outfit_reference,
+            denoise=_denoise(request, 0.85),
+            seed=_seed(request),
+        )
+        models = {
+            "model_family": "sd15",
+            "checkpoint": checkpoint,
+            "ip_adapter": "ip-adapter_sd15.bin",
+        }
     warnings: list[str] = []
+    if family == "flux":
+        warnings.append(FLUX_IPADAPTER_WARNING)
     if request.outfit_reference is None:
         warnings.append(
             "Sin imagen de referencia del atuendo nuevo: el cambio se "
@@ -196,7 +281,7 @@ def _plan_outfit_change(
         mask=mask,
         mask_filenames=[MASK_FILENAME],
         references_used=_references_used(request.references),
-        models={"checkpoint": checkpoint, "ip_adapter": "ip-adapter_sd15.bin"},
+        models=models,
         warnings=warnings,
     )
 
@@ -219,18 +304,41 @@ def _plan_outfit_remove(
     negative = (
         f"{NEGATIVE_BASE}, clothing, garment, {garment}, fabric, underwear, swimwear"
     )
-    workflow = build_outfit_workflow(
-        input_filename=_input_filename(request),
-        mask_filename=MASK_FILENAME,
-        operation="outfit_remove",
-        positive_prompt=positive,
-        negative_prompt=negative,
-        checkpoint=checkpoint,
-        identity_reference=identity,
-        outfit_reference=None,
-        denoise=1.0,
-    )
+    workflow: dict
+    family = _model_family(request)
+    if family == "flux":
+        workflow = build_flux_outfit_workflow(
+            input_filename=_input_filename(request),
+            mask_filename=MASK_FILENAME,
+            operation="outfit_remove",
+            positive_prompt=positive,
+            negative_prompt=negative,
+            denoise=_denoise(request, 1.0),
+            seed=_seed(request),
+            **_flux_params(request),
+        )
+        models = {"model_family": "flux", **_flux_params(request)}
+    else:
+        workflow = build_outfit_workflow(
+            input_filename=_input_filename(request),
+            mask_filename=MASK_FILENAME,
+            operation="outfit_remove",
+            positive_prompt=positive,
+            negative_prompt=negative,
+            checkpoint=checkpoint,
+            identity_reference=identity,
+            outfit_reference=None,
+            denoise=_denoise(request, 1.0),
+            seed=_seed(request),
+        )
+        models = {
+            "model_family": "sd15",
+            "checkpoint": checkpoint,
+            "ip_adapter": "ip-adapter_sd15.bin",
+        }
     warnings: list[str] = []
+    if family == "flux":
+        warnings.append(FLUX_IPADAPTER_WARNING)
     if checkpoint == DEFAULT_CHECKPOINT:
         warnings.append(
             "Para reconstrucción de regiones se recomienda un checkpoint "
@@ -273,7 +381,7 @@ def _plan_outfit_remove(
         mask=mask,
         mask_filenames=[MASK_FILENAME],
         references_used=_references_used(request.references),
-        models={"checkpoint": checkpoint, "ip_adapter": "ip-adapter_sd15.bin"},
+        models=models,
         warnings=warnings,
     )
 
@@ -299,17 +407,51 @@ def _plan_pose(request: PlanRequest, segmentation: SegmentationService) -> WorkP
         f"{POSITIVE_PHOTO}, same person, same identity, same face, "
         "natural body proportions, coherent anatomy"
     )
-    workflow = build_pose_workflow(
-        input_filename=_input_filename(request),
-        pose_reference_filename=pose_filename,
-        positive_prompt=positive,
-        negative_prompt=NEGATIVE_BASE,
-        checkpoint=checkpoint,
-        identity_reference=identity,
-        controlnet_model=request.parameters.get(
-            "controlnet_model", DEFAULT_OPENPOSE_MODEL
-        ),
-    )
+    workflow: dict
+    family = _model_family(request)
+    if family == "flux":
+        warnings.append(FLUX_IPADAPTER_WARNING)
+        workflow = build_flux_pose_workflow(
+            input_filename=_input_filename(request),
+            pose_reference_filename=pose_filename,
+            positive_prompt=positive,
+            negative_prompt=NEGATIVE_BASE,
+            controlnet_model=request.parameters.get(
+                "flux_controlnet", DEFAULT_FLUX_CONTROLNET
+            ),
+            denoise=_denoise(request, 0.65),
+            seed=_seed(request),
+            **_flux_params(request),
+        )
+        models = {
+            "model_family": "flux",
+            "controlnet": request.parameters.get(
+                "flux_controlnet", DEFAULT_FLUX_CONTROLNET
+            ),
+            **_flux_params(request),
+        }
+    else:
+        workflow = build_pose_workflow(
+            input_filename=_input_filename(request),
+            pose_reference_filename=pose_filename,
+            positive_prompt=positive,
+            negative_prompt=NEGATIVE_BASE,
+            checkpoint=checkpoint,
+            identity_reference=identity,
+            controlnet_model=request.parameters.get(
+                "controlnet_model", DEFAULT_OPENPOSE_MODEL
+            ),
+            denoise=_denoise(request, 0.65),
+            seed=_seed(request),
+        )
+        models = {
+            "model_family": "sd15",
+            "checkpoint": checkpoint,
+            "controlnet": request.parameters.get(
+                "controlnet_model", DEFAULT_OPENPOSE_MODEL
+            ),
+            "ip_adapter": "ip-adapter_sd15.bin",
+        }
     return WorkPlan(
         operation="pose_change",
         summary="Cambiar la pose con ControlNet (OpenPose) conservando la identidad.",
@@ -343,13 +485,7 @@ def _plan_pose(request: PlanRequest, segmentation: SegmentationService) -> WorkP
         workflow=workflow,
         mask=None,
         references_used=_references_used(request.references),
-        models={
-            "checkpoint": checkpoint,
-            "controlnet": request.parameters.get(
-                "controlnet_model", DEFAULT_OPENPOSE_MODEL
-            ),
-            "ip_adapter": "ip-adapter_sd15.bin",
-        },
+        models=models,
         warnings=warnings,
     )
 
@@ -372,14 +508,37 @@ def _plan_background(
         f"{POSITIVE_PHOTO}, background scene: {scene}, "
         "coherent lighting with the subject, seamless integration"
     )
-    workflow = build_background_workflow(
-        input_filename=_input_filename(request),
-        mask_filename=MASK_FILENAME,
-        positive_prompt=positive,
-        negative_prompt=NEGATIVE_BASE,
-        checkpoint=checkpoint,
-        identity_reference=identity,
-    )
+    workflow: dict
+    family = _model_family(request)
+    if family == "flux":
+        workflow = build_flux_background_workflow(
+            input_filename=_input_filename(request),
+            mask_filename=MASK_FILENAME,
+            positive_prompt=positive,
+            negative_prompt=NEGATIVE_BASE,
+            denoise=_denoise(request, 0.8),
+            seed=_seed(request),
+            **_flux_params(request),
+        )
+        models = {"model_family": "flux", **_flux_params(request)}
+        warnings = [FLUX_IPADAPTER_WARNING]
+    else:
+        workflow = build_background_workflow(
+            input_filename=_input_filename(request),
+            mask_filename=MASK_FILENAME,
+            positive_prompt=positive,
+            negative_prompt=NEGATIVE_BASE,
+            checkpoint=checkpoint,
+            identity_reference=identity,
+            denoise=_denoise(request, 0.8),
+            seed=_seed(request),
+        )
+        models = {
+            "model_family": "sd15",
+            "checkpoint": checkpoint,
+            "ip_adapter": "ip-adapter_sd15.bin",
+        }
+        warnings = []
     return WorkPlan(
         operation="background_change",
         summary=f"Cambiar el fondo a '{scene}' conservando a la persona intacta.",
@@ -414,8 +573,8 @@ def _plan_background(
         mask=mask,
         mask_filenames=[MASK_FILENAME],
         references_used=_references_used(request.references),
-        models={"checkpoint": checkpoint, "ip_adapter": "ip-adapter_sd15.bin"},
-        warnings=[],
+        models=models,
+        warnings=warnings,
     )
 
 
@@ -453,7 +612,11 @@ def _plan_enhance(request: PlanRequest, segmentation: SegmentationService) -> Wo
         workflow=workflow,
         mask=None,
         references_used={},
-        models={"upscale_model": upscale_model, "upscale_factor": scale},
+        models={
+            "model_family": _model_family(request),
+            "upscale_model": upscale_model,
+            "upscale_factor": scale,
+        },
         warnings=[
             "La mejora es restauración, no generación: no inventa detalles "
             "que no estén en la imagen original.",
@@ -493,14 +656,41 @@ def _plan_multi_model(
         + ", ".join(profile.get("name", "?") for profile in profiles)
         + ", coherent lighting, consistent perspective, seamless integration"
     )
-    workflow = build_composition_workflow(
-        input_filename=_input_filename(request),
-        mask_filenames=mask_filenames,
-        positive_prompt=positive,
-        negative_prompt=NEGATIVE_BASE,
-        checkpoint=checkpoint,
-        identity_references=identity_paths,
-    )
+    workflow: dict
+    family = _model_family(request)
+    if family == "flux":
+        workflow = build_flux_composition_workflow(
+            input_filename=_input_filename(request),
+            mask_filenames=mask_filenames,
+            positive_prompt=positive,
+            negative_prompt=NEGATIVE_BASE,
+            harmonize_denoise=float(request.parameters.get("harmonize_denoise", 0.25)),
+            seed=_seed(request),
+            **_flux_params(request),
+        )
+        models = {"model_family": "flux", **_flux_params(request)}
+        warnings = [FLUX_IPADAPTER_WARNING]
+    else:
+        workflow = build_composition_workflow(
+            input_filename=_input_filename(request),
+            mask_filenames=mask_filenames,
+            positive_prompt=positive,
+            negative_prompt=NEGATIVE_BASE,
+            checkpoint=checkpoint,
+            identity_references=identity_paths,
+            harmonize_denoise=float(request.parameters.get("harmonize_denoise", 0.25)),
+            seed=_seed(request),
+        )
+        models = {
+            "model_family": "sd15",
+            "checkpoint": checkpoint,
+            "ip_adapter": "ip-adapter_sd15.bin",
+        }
+        warnings = [
+            "La composición es secuencial por región; la armonización "
+            "final unifica la iluminación pero no corrige errores graves "
+            "de perspectiva entre modelos.",
+        ]
     steps = [
         PlanStep(
             order=1,
@@ -557,13 +747,9 @@ def _plan_multi_model(
             ]
             for profile in profiles
         },
-        models={"checkpoint": checkpoint, "ip_adapter": "ip-adapter_sd15.bin"},
+        models=models,
         composition=slots,
-        warnings=[
-            "La composición es secuencial por región; la armonización "
-            "final unifica la iluminación pero no corrige errores graves "
-            "de perspectiva entre modelos.",
-        ],
+        warnings=warnings,
     )
 
 
