@@ -47,6 +47,29 @@ def _fake_sam_module(*, with_mask: bool = True):
     return module
 
 
+def _fake_sam_module_with_hole():
+    """Módulo ultralytics falso con una máscara con un hueco rectangular.
+
+    La silueta cubre x 30..99, y 20..79, salvo un hueco en
+    x 50..89, y 30..69. Un PNG rectangular pintaría el hueco de blanco;
+    un PNG de silueta real lo deja en negro.
+    """
+
+    class _FakeSAM:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+        def predict(self, image_path: str, verbose: bool = False):
+            data = np.zeros((1, 96, 128), dtype=np.float32)
+            data[0, 20:80, 30:100] = 1.0
+            data[0, 30:70, 50:90] = 0.0
+            return [_FakeResult(data)]
+
+    module = types.ModuleType("ultralytics")
+    module.SAM = _FakeSAM
+    return module
+
+
 def _image(tmp_path: Path) -> Path:
     path = tmp_path / "original.png"
     path.write_bytes(make_test_png(128, 96, color="blue"))
@@ -123,6 +146,45 @@ def test_factory_returns_sam_when_available(monkeypatch, tmp_path: Path) -> None
     monkeypatch.setenv("VEXTAR_SEGMENTATION", "sam")
     monkeypatch.setenv("VEXTAR_SAM_MODEL", str(model_file))
     assert isinstance(get_segmentation_service(), SamSegmentationService)
+
+
+def test_sam_mask_png_follows_silhouette_not_rectangle(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """El PNG de la máscara SAM sigue la silueta, no el rectángulo."""
+    from PIL import Image
+
+    monkeypatch.setitem(sys.modules, "ultralytics", _fake_sam_module_with_hole())
+    model_file = tmp_path / "sam2.1_b.pt"
+    model_file.write_bytes(b"pesos-falsos")
+    service = SamSegmentationService(model_path=model_file)
+    image = _image(tmp_path)
+
+    garment = service.garment_mask(image, "vestido")
+    assert garment.silhouette is not None
+    mask_path = tmp_path / "mask-silhouette.png"
+    service.write_mask(garment, (128, 96), mask_path)
+    with Image.open(mask_path) as png:
+        pixels = png.load()
+        # Dentro de la silueta y de la banda de vestido: blanco
+        # (el difuminado de bordes puede bajarlo algo por debajo de 255).
+        assert pixels[40, 50] > 150
+        # Dentro del rectángulo de la prenda pero en el hueco de la
+        # silueta: negro (un rectángulo lo pintaría de blanco).
+        assert pixels[70, 50] < 128
+        # Fuera de la persona: negro.
+        assert pixels[10, 10] < 128
+
+    background = service.background_mask(image)
+    assert background.silhouette is not None
+    bg_path = tmp_path / "mask-background.png"
+    service.write_mask(background, (128, 96), bg_path)
+    with Image.open(bg_path) as png:
+        pixels = png.load()
+        # El hueco de la silueta es fondo: blanco al invertir.
+        assert pixels[70, 50] > 128
+        # Dentro de la silueta: negro (persona conservada).
+        assert pixels[40, 50] < 128
 
 
 def test_sam_without_masks_uses_fallback_box(monkeypatch, tmp_path: Path) -> None:

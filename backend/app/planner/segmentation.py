@@ -180,8 +180,51 @@ class StubSegmentationService:
 
 
 def _write_mask_png(mask: MaskSpec, size: tuple[int, int], out_path: Path) -> Path:
-    """Escribe una máscara como PNG (blanco = regenerar) y devuelve su ruta."""
+    """Escribe una máscara como PNG (blanco = regenerar) y devuelve su ruta.
+
+    Si la máscara trae una silueta real (SAM), el PNG sigue esa silueta:
+    para una prenda, la silueta intersectada con la banda de la prenda;
+    si está invertida (fondo), todo excepto la silueta. Sin silueta, se
+    dibujan los rectángulos de las regiones como antes.
+    """
     width, height = size
+    silhouette = getattr(mask, "silhouette", None)
+    if silhouette is not None and np is not None:
+        try:
+            array = np.asarray(silhouette)
+        except Exception:  # noqa: BLE001 - sin silueta usable, rectángulos
+            array = None
+        if array is not None and array.ndim == 2 and array.size > 0:
+            canvas = Image.fromarray(
+                (array > 0).astype("uint8") * 255
+            ).resize((width, height), Image.NEAREST)
+            if mask.invert:
+                canvas = Image.eval(canvas, lambda value: 255 - value)
+            else:
+                rect = Image.new("L", (width, height), 0)
+                draw = ImageDraw.Draw(rect)
+                for region in mask.regions:
+                    x_min, y_min, x_max, y_max = region.bbox
+                    draw.rectangle(
+                        [
+                            int(x_min * width),
+                            int(y_min * height),
+                            int(x_max * width),
+                            int(y_max * height),
+                        ],
+                        fill=255,
+                    )
+                canvas = Image.fromarray(
+                    ((np.asarray(canvas) > 0) & (np.asarray(rect) > 0)).astype(
+                        "uint8"
+                    )
+                    * 255
+                )
+            if mask.feather_px > 0:
+                canvas = canvas.filter(ImageFilter.GaussianBlur(mask.feather_px))
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            canvas.save(out_path, format="PNG")
+            return out_path
     canvas = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(canvas)
     for region in mask.regions:
@@ -214,9 +257,10 @@ class SamSegmentationService:
 
     SAM segmenta la persona, no las prendas: la región de prenda se
     deriva como la banda proporcional de la prenda intersectada con la
-    silueta real de la persona. La máscara PNG sigue siendo un
-    rectángulo (la silueta completa es una mejora futura); la caja de la
-    persona sí proviene de la máscara real de SAM.
+    silueta real de la persona, y esa silueta viaja en
+    ``MaskSpec.silhouette`` para que :func:`_write_mask_png` dibuje el
+    PNG con la silueta real (no un rectángulo). La caja de la persona
+    también proviene de la máscara real de SAM.
     """
 
     def __init__(self, model_path: Path | None = None) -> None:
@@ -338,6 +382,7 @@ class SamSegmentationService:
             confidence=0.85 if person.confidence > 0.5 else 0.3,
             source=SOURCE_SAM,
         )
+        silhouette, _ = self._person_mask(image_path)
         return MaskSpec(
             target=f"garment:{garment}",
             regions=[region],
@@ -345,13 +390,15 @@ class SamSegmentationService:
             invert=False,
             notes=(
                 "Región de prenda intersectada con la silueta de la persona "
-                "segmentada por SAM. La máscara PNG es el rectángulo de esa "
-                "región."
+                "segmentada por SAM; el PNG dibuja esa silueta, no un "
+                "rectángulo."
             ),
+            silhouette=silhouette,
         )
 
     def background_mask(self, image_path: Path) -> MaskSpec:
         person = self.segment_person(image_path)
+        silhouette, _ = self._person_mask(image_path)
         return MaskSpec(
             target="background",
             regions=[person],
@@ -359,8 +406,9 @@ class SamSegmentationService:
             invert=True,
             notes=(
                 "La máscara se invierte: se regenera todo excepto la "
-                "persona segmentada por SAM."
+                "silueta de la persona segmentada por SAM."
             ),
+            silhouette=silhouette,
         )
 
     def write_mask(self, mask: MaskSpec, size: tuple[int, int], out_path: Path) -> Path:

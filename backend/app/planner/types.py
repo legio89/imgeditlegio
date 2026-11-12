@@ -52,6 +52,11 @@ class MaskSpec:
     feather_px: int = 8
     invert: bool = False
     notes: str = ""
+    # Silueta de la persona como array booleano (H, W), solo cuando la
+    # segmentación real (SAM) la conoce. No se serializa en to_dict:
+    # write_mask la usa para dibujar la silueta real en el PNG en vez
+    # del rectángulo de la región. None = máscara rectangular.
+    silhouette: object = None
 
     def to_dict(self) -> dict:
         return {

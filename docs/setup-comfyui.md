@@ -213,9 +213,14 @@ foto original en el Estudio, describe la edición y crea el trabajo.
 
 ## 9. Qué sigue sin estar en la laptop
 
-- La evaluación de coherencia existe y funciona, pero la
-  segmentación real depende de SAM instalado (paso 4).
+- La segmentación SAM ya escribe la silueta real de la persona en el
+  PNG de la máscara (intersectada con la banda de la prenda, o
+  invertida para el fondo); sin SAM instalado, el stub sigue usando
+  rectángulos.
 - Los workflows FLUX son la variante base (inpainting/img2img con
   ControlNet). El condicionamiento de identidad con IP-Adapter para
   FLUX aún no está cableado: usa SD 1.5 cuando la identidad sea lo
-  prioritario.
+  prioritario. Las variantes FLUX de IP-Adapter viven en
+  ComfyUI-IPAdapter-Plus con sus propios nodos y modelo
+  (`ip-adapter-faceid-flux.bin`); PuLID-Flux es la alternativa más
+  fuerte para identidad facial en FLUX.
