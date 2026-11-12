@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vextar-backend"
+version = "0.1.0"
+description = "Backend de VEXTAR: estudio privado de edición fotográfica con IA"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+# Las migraciones de Alembic son código generado (con su propio formato).
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP"]
+# B008: FastAPI usa Depends()/File()/Form() en los valores por defecto
+# de los parámetros; es el patrón idiomático del framework.
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
