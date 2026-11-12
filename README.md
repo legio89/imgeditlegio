@@ -127,6 +127,10 @@ cd vextar-perro
 .\scripts\start-vextar.ps1     # arranca ComfyUI + backend + frontend
 ```
 
+Sin permisos de administrador (para adelantar la instalación en
+remoto): `.\scripts\setup-windows.ps1 -NoAdmin` hace todo lo que no
+los necesita y reporta qué quedó pendiente.
+
 El Estudio queda en http://localhost:5173. En hardware modesto cada
 generación tarda minutos: es normal, el backend espera hasta 30 min
 (`VEXTAR_COMFYUI_TIMEOUT_S`). Detalle completo en

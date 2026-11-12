@@ -36,9 +36,19 @@ cd vextar-perro
                                # ComfyUI + backend + frontend
 ```
 
+¿No estás en casa y no quieres que pida permisos de administrador?
+Corre el instalador en modo sin admin; hace todo lo que no necesita
+permisos (clones, entornos si Python ya está, dependencias y descargas
+de modelos) y te dice qué quedó pendiente para cuando estés en la
+laptop:
+
+```powershell
+.\scripts\setup-windows.ps1 -NoAdmin
+```
+
 El instalador es idempotente (se puede volver a correr; lo que ya existe
 se salta) y, si te falta Git, Python o Node, intenta instalarlo con
-winget. Los pasos manuales 1–6 de abajo quedan como referencia y como
+winget (eso sí pide admin). Los pasos manuales 1–6 de abajo quedan como referencia y como
 plan B si un script falla.
 
 ## 1. Requisitos

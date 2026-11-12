@@ -14,12 +14,17 @@
 # Uso (desde PowerShell, en la carpeta del repo):
 #   .\scripts\setup-windows.ps1
 #   .\scripts\setup-windows.ps1 -NoSam     # salta SAM / ultralytics
+#   .\scripts\setup-windows.ps1 -NoAdmin   # sin permisos de administrador:
+#      no usa winget ni instaladores; si falta Python o Node, salta los
+#      pasos que los necesitan y sigue con lo demás (clones y descargas
+#      de modelos). Ideal para adelantar la instalación en remoto.
 #
 # Es idempotente: se puede volver a correr sin romper nada; lo que ya
 # existe se salta. Al terminar, arranca todo con .\scripts\start-vextar.ps1
 
 param(
-    [switch]$NoSam
+    [switch]$NoSam,
+    [switch]$NoAdmin
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,8 +33,13 @@ $ComfyDir = Join-Path $RepoRoot "ComfyUI"
 $ModelsDir = Join-Path $RepoRoot "models"
 
 Write-Host "VEXTAR — instalación local (Windows)" -ForegroundColor Cyan
+if ($NoAdmin) {
+    Write-Host "MODO SIN ADMIN: nada pedirá permisos de administrador." -ForegroundColor Cyan
+}
 Write-Host "Repo: $RepoRoot"
 Write-Host ""
+
+$Skipped = @()
 
 # ---------------------------------------------------------------- requisitos
 
@@ -53,28 +63,53 @@ function Install-WithWinget {
     return $true
 }
 
-if (-not (Test-Command "git")) {
-    Write-Host "Git no encontrado." -ForegroundColor Yellow
-    if (-not (Install-WithWinget "Git.Git" "Git")) { exit 1 }
+$HasGit = Test-Command "git"
+$HasPython = Test-Command "python"
+$HasNode = Test-Command "node"
+
+if (-not $NoAdmin) {
+    if (-not $HasGit) {
+        if (Install-WithWinget "Git.Git" "Git") { $HasGit = $true } else { exit 1 }
+    }
+    if (-not $HasPython) {
+        if (Install-WithWinget "Python.Python.3.12" "Python 3.12") { $HasPython = $true } else { exit 1 }
+    }
+    if (-not $HasNode) {
+        if (Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS") { $HasNode = $true } else { exit 1 }
+    }
 }
 
-if (-not (Test-Command "python")) {
-    Write-Host "Python no encontrado." -ForegroundColor Yellow
-    if (-not (Install-WithWinget "Python.Python.3.12" "Python 3.12")) { exit 1 }
-}
-
-$pythonVersion = (python --version) 2>$null
-Write-Host "Python: $pythonVersion"
-if ($pythonVersion -notmatch "Python 3\.(11|12)\.") {
-    Write-Host "  Se necesita Python 3.11 o 3.12. Instala 3.12 desde https://www.python.org/downloads/ (marca 'Add Python to PATH') y vuelve a correr este script." -ForegroundColor Red
+if (-not $HasGit) {
+    Write-Host "Git no está instalado y sin Git no se puede clonar nada." -ForegroundColor Red
+    Write-Host "Instala Git desde https://git-scm.com/download/win y vuelve a correr este script." -ForegroundColor Red
     exit 1
 }
 
-if (-not (Test-Command "node")) {
-    Write-Host "Node.js no encontrado." -ForegroundColor Yellow
-    if (-not (Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS")) { exit 1 }
+$SkipPython = -not $HasPython
+if ($HasPython) {
+    $pythonVersion = (python --version) 2>$null
+    Write-Host "Python: $pythonVersion"
+    if ($pythonVersion -notmatch "Python 3\.(11|12)\.") {
+        if ($NoAdmin) {
+            Write-Host "  La versión de Python no es 3.11/3.12 y en modo sin admin no se puede cambiar. Se saltan los pasos que necesitan Python." -ForegroundColor Yellow
+            $SkipPython = $true
+        } else {
+            Write-Host "  Se necesita Python 3.11 o 3.12. Instala 3.12 desde https://www.python.org/downloads/ (marca 'Add Python to PATH') y vuelve a correr este script." -ForegroundColor Red
+            exit 1
+        }
+    }
+} else {
+    Write-Host "Python no encontrado. Se saltan los pasos que lo necesitan (entornos y dependencias); los clones y las descargas de modelos sí se hacen." -ForegroundColor Yellow
+    $Skipped += "Python (entornos y dependencias)"
 }
-Write-Host "Node: $(node --version) / npm: $(npm --version)"
+
+$SkipNode = -not $HasNode
+if ($HasNode) {
+    Write-Host "Node: $(node --version) / npm: $(npm --version)"
+} else {
+    Write-Host "Node.js no encontrado. Se salta la instalación del frontend." -ForegroundColor Yellow
+    $Skipped += "Node.js (frontend)"
+}
 
 $drive = $RepoRoot.Substring(0, 1)
 $freeGB = [math]::Round((Get-PSDrive $drive).Free / 1GB, 1)
@@ -89,28 +124,36 @@ Write-Host ""
 
 Write-Host "[1/6] Backend de VEXTAR..." -ForegroundColor Cyan
 $BackendDir = Join-Path $RepoRoot "backend"
-$BackendVenv = Join-Path $BackendDir ".venv"
-if (-not (Test-Path (Join-Path $BackendVenv "Scripts\python.exe"))) {
-    python -m venv $BackendVenv
+if (-not $SkipPython) {
+    $BackendVenv = Join-Path $BackendDir ".venv"
+    if (-not (Test-Path (Join-Path $BackendVenv "Scripts\python.exe"))) {
+        python -m venv $BackendVenv
+    }
+    $BackendPython = Join-Path $BackendVenv "Scripts\python.exe"
+    & $BackendPython -m pip install --upgrade pip --quiet
+    & $BackendPython -m pip install -r (Join-Path $BackendDir "requirements.txt")
+    if (-not $NoSam) {
+        Write-Host "  Instalando ultralytics (SAM, segmentación real)..."
+        & $BackendPython -m pip install ultralytics
+    }
+    Write-Host "  Backend listo."
+} else {
+    Write-Host "  Omitido (sin Python)."
 }
-$BackendPython = Join-Path $BackendVenv "Scripts\python.exe"
-& $BackendPython -m pip install --upgrade pip --quiet
-& $BackendPython -m pip install -r (Join-Path $BackendDir "requirements.txt")
-if (-not $NoSam) {
-    Write-Host "  Instalando ultralytics (SAM, segmentación real)..."
-    & $BackendPython -m pip install ultralytics
-}
-Write-Host "  Backend listo."
 Write-Host ""
 
 # ------------------------------------------------------------------ frontend
 
 Write-Host "[2/6] Frontend de VEXTAR..." -ForegroundColor Cyan
 $FrontendDir = Join-Path $RepoRoot "frontend"
-Push-Location $FrontendDir
-npm install
-Pop-Location
-Write-Host "  Frontend listo."
+if (-not $SkipNode) {
+    Push-Location $FrontendDir
+    npm install
+    Pop-Location
+    Write-Host "  Frontend listo."
+} else {
+    Write-Host "  Omitido (sin Node.js)."
+}
 Write-Host ""
 
 # ------------------------------------------------------------------- ComfyUI
@@ -118,17 +161,23 @@ Write-Host ""
 Write-Host "[3/6] ComfyUI..." -ForegroundColor Cyan
 if (-not (Test-Path (Join-Path $ComfyDir "main.py"))) {
     git clone https://github.com/comfyanonymous/ComfyUI.git $ComfyDir
+} else {
+    Write-Host "  Ya existe: ComfyUI"
 }
-$ComfyVenv = Join-Path $ComfyDir "venv"
-if (-not (Test-Path (Join-Path $ComfyVenv "Scripts\python.exe"))) {
-    python -m venv $ComfyVenv
+if (-not $SkipPython) {
+    $ComfyVenv = Join-Path $ComfyDir "venv"
+    if (-not (Test-Path (Join-Path $ComfyVenv "Scripts\python.exe"))) {
+        python -m venv $ComfyVenv
+    }
+    $ComfyPython = Join-Path $ComfyVenv "Scripts\python.exe"
+    & $ComfyPython -m pip install --upgrade pip --quiet
+    & $ComfyPython -m pip install -r (Join-Path $ComfyDir "requirements.txt")
+    Write-Host "  Instalando torch-directml (GPU AMD)..."
+    & $ComfyPython -m pip install torch-directml
+    Write-Host "  ComfyUI listo."
+} else {
+    Write-Host "  Entorno de ComfyUI omitido (sin Python). El clon ya está."
 }
-$ComfyPython = Join-Path $ComfyVenv "Scripts\python.exe"
-& $ComfyPython -m pip install --upgrade pip --quiet
-& $ComfyPython -m pip install -r (Join-Path $ComfyDir "requirements.txt")
-Write-Host "  Instalando torch-directml (GPU AMD)..."
-& $ComfyPython -m pip install torch-directml
-Write-Host "  ComfyUI listo."
 Write-Host ""
 
 # ------------------------------------------------------------- custom nodes
@@ -149,7 +198,7 @@ foreach ($node in $Nodes) {
         Write-Host "  Ya existe: $($node.Name)"
     }
     $req = Join-Path $dest "requirements.txt"
-    if (Test-Path $req) {
+    if ((-not $SkipPython) -and (Test-Path $req)) {
         Write-Host "  Dependencias de $($node.Name)..."
         try {
             & $ComfyPython -m pip install -r $req
@@ -205,5 +254,10 @@ if (-not $NoSam) {
 Write-Host ""
 
 Write-Host "Instalación completa." -ForegroundColor Green
+if ($Skipped.Count -gt 0) {
+    Write-Host "Omitido en modo sin admin (falta instalarlo):" -ForegroundColor Yellow
+    $Skipped | ForEach-Object { Write-Host "  - $_" }
+    Write-Host "Corre de nuevo .\scripts\setup-windows.ps1 (con admin) para completar lo omitido."
+}
 Write-Host "Ahora arranca todo con:  .\scripts\start-vextar.ps1"
 Write-Host "La primera generación tarda minutos en esta laptop: es normal."
