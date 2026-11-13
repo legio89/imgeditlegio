@@ -135,6 +135,12 @@ class ComfyUIEngine(GenerationEngine):
             local_path = Path(local)
             if local_path.exists():
                 mapping[placeholder] = self._upload_image(local_path)
+        # Referencias de pose/atuendo: el plan las nombra por su nombre de
+        # archivo local; hay que subirlas para que ComfyUI las encuentre.
+        for local in parameters.get("extra_upload_paths") or []:
+            local_path = Path(local)
+            if local_path.exists() and local_path.name not in mapping:
+                mapping[local_path.name] = self._upload_image(local_path)
         return mapping
 
     @staticmethod

@@ -169,24 +169,34 @@ def _plan_job(db: Session, job: Job, input_path: Path, references) -> None:
     """
     parameters = dict(job.parameters or {})
     profiles = _profile_summaries(db, list(job.profile_ids or []))
+    outfit_reference = _reference_asset_path(
+        db, parameters.get("outfit_reference_asset_id")
+    )
+    pose_reference = _reference_asset_path(
+        db, parameters.get("pose_reference_asset_id")
+    )
     request = PlanRequest(
         operation=job.operation,
         intent_text=job.intent_text,
         targets=list(parameters.get("targets") or []),
         input_path=input_path,
         references=references,
-        outfit_reference=_reference_asset_path(
-            db, parameters.get("outfit_reference_asset_id")
-        ),
-        pose_reference=_reference_asset_path(
-            db, parameters.get("pose_reference_asset_id")
-        ),
+        outfit_reference=outfit_reference,
+        pose_reference=pose_reference,
         profiles=profiles,
         parameters=parameters,
     )
     plan = build_plan(request)
     parameters["plan"] = plan.to_dict()
     parameters["comfyui_workflow"] = plan.workflow
+    # Las referencias de pose/atuendo son archivos locales que el motor
+    # debe subir a ComfyUI: el workflow las nombra por su nombre de
+    # archivo, y si no se suben ComfyUI rechaza el prompt con 400.
+    extra_uploads = [
+        str(path) for path in (outfit_reference, pose_reference) if path is not None
+    ]
+    if extra_uploads:
+        parameters["extra_upload_paths"] = extra_uploads
     job.parameters = parameters
     db.commit()
     add_event(

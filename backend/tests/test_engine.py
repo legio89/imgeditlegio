@@ -104,6 +104,33 @@ def test_comfyui_workflow_injection_and_deepcopy() -> None:
     assert workflow["1"]["inputs"]["image"] == "original.png"
 
 
+def test_comfyui_collect_uploads_includes_extra_paths(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Las referencias de pose/atuendo (extra_upload_paths) se suben a
+    ComfyUI: si no, el workflow las nombra y ComfyUI rechaza el prompt."""
+    engine = ComfyUIEngine("http://127.0.0.1:1")
+    original = tmp_path / "original.png"
+    original.write_bytes(b"original")
+    pose = tmp_path / "pose.png"
+    pose.write_bytes(b"pose")
+    uploaded: list[str] = []
+
+    def fake_upload(path: Path) -> str:
+        uploaded.append(path.name)
+        return f"subido-{path.name}"
+
+    monkeypatch.setattr(engine, "_upload_image", fake_upload)
+    mapping = engine._collect_uploads(
+        original,
+        {},
+        {"extra_upload_paths": [str(pose)]},
+    )
+    assert mapping["original.png"] == "subido-original.png"
+    assert mapping["pose.png"] == "subido-pose.png"
+    assert uploaded == ["original.png", "pose.png"]
+
+
 def test_comfyui_engine_unavailable_when_server_down() -> None:
     engine = ComfyUIEngine("http://127.0.0.1:1", timeout_s=5)
     health = engine.health()
