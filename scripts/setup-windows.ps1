@@ -247,14 +247,14 @@ Write-Host "[2/6] Frontend de VEXTAR..." -ForegroundColor Cyan
 $FrontendDir = Join-Path $RepoRoot "frontend"
 if (-not $SkipNode) {
     Push-Location $FrontendDir
-    npm install 2>&1
+    npm install --loglevel=error 2>&1
     # Vite necesita el binario de esbuild; si npm no ejecuto su script de
     # instalacion, el binario falta y el frontend no arranca. Se comprueba
     # el archivo y se reconstruye si hace falta.
     $esbuildBin = Join-Path $FrontendDir "node_modules\@esbuild\win32-x64\esbuild.exe"
     if (-not (Test-Path $esbuildBin)) {
         Write-Host "  No esta el binario de esbuild; reconstruyendo..." -ForegroundColor Yellow
-        npm rebuild esbuild 2>&1
+        npm rebuild esbuild --loglevel=error 2>&1
         if (-not (Test-Path $esbuildBin)) {
             Write-Host "  Aviso: esbuild sigue sin su binario. Prueba 'npm rebuild esbuild' a mano en frontend/." -ForegroundColor Yellow
         }
