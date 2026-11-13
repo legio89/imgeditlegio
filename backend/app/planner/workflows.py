@@ -119,7 +119,7 @@ def _identity_adapter(
             "ipadapter": WorkflowBuilder.link(ipadapter),
             "image": WorkflowBuilder.link(image),
             "weight": weight,
-            "weight_type": "linear",
+            "weight_type": "standard",
             "start_at": 0.0,
             "end_at": 1.0,
         },
