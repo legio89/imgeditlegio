@@ -116,7 +116,7 @@ def _identity_adapter(
         "IPAdapterUnifiedLoader",
         {
             "model": WorkflowBuilder.link(model_node),
-            "preset": "PLUS (high strength)",
+            "preset": "STANDARD (medium strength)",
             "ipadapter": WorkflowBuilder.link(ipadapter),
         },
     )
