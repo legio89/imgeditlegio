@@ -70,7 +70,7 @@ def test_outfit_remove_without_outfit_reference_works(
     assert "VAEEncodeForInpaint" in types
     assert "LoadImageMask" in types
     assert "SaveImage" in types
-    assert "IPAdapterApply" in types  # identidad por referencia de rostro
+    assert "IPAdapter" in types  # identidad por referencia de rostro
     _assert_workflow_links_valid(plan.workflow)
     # Denoise completo: la región se reconstruye entera.
     samplers = [
@@ -109,7 +109,7 @@ def test_outfit_change_with_outfit_reference(input_image: Path, tmp_path: Path) 
         )
     )
     types = _node_types(plan.workflow)
-    assert types.count("IPAdapterApply") >= 1  # condicionamiento del atuendo nuevo
+    assert types.count("IPAdapter") >= 1  # condicionamiento del atuendo nuevo
     assert types.count("LoadImage") >= 2  # original + referencia de atuendo
     assert not any("Sin imagen de referencia del atuendo" in w for w in plan.warnings)
     _assert_workflow_links_valid(plan.workflow)

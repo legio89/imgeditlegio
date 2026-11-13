@@ -108,18 +108,20 @@ def _identity_adapter(
         "IPAdapterModelLoader", {"ipadapter_file": DEFAULT_IPADAPTER_MODEL}
     )
     image = builder.add("LoadImage", {"image": reference_path.name})
+    # El nodo se llama "IPAdapter" (no "IPAdapterApply") en
+    # ComfyUI_IPAdapter_plus. Sus entradas son model, ipadapter, image,
+    # weight, start_at, end_at y weight_type; no tiene combine_embeds
+    # ni embeds_scaling.
     adapted = builder.add(
-        "IPAdapterApply",
+        "IPAdapter",
         {
             "model": WorkflowBuilder.link(model_node),
             "ipadapter": WorkflowBuilder.link(ipadapter),
             "image": WorkflowBuilder.link(image),
             "weight": weight,
             "weight_type": "linear",
-            "combine_embeds": "concat",
             "start_at": 0.0,
             "end_at": 1.0,
-            "embeds_scaling": "V only",
         },
     )
     return adapted

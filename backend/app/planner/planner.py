@@ -310,7 +310,7 @@ def _plan_outfit_change(
             (
                 "Condicionar la identidad",
                 "IP-Adapter con la referencia de rostro/cuerpo del perfil.",
-                "IPAdapterApply",
+                "IPAdapter",
             ),
             (
                 "Inpainting del atuendo",
@@ -411,7 +411,7 @@ def _plan_outfit_remove(
             (
                 "Condicionar la reconstrucción",
                 "IP-Adapter con referencias de rostro, piel y cuerpo del perfil.",
-                "IPAdapterApply",
+                "IPAdapter",
             ),
             (
                 "Reconstruir la región",
@@ -516,7 +516,7 @@ def _plan_pose(request: PlanRequest, segmentation: SegmentationService) -> WorkP
             (
                 "Condicionar la identidad",
                 "IP-Adapter con la referencia de rostro/cuerpo del perfil.",
-                "IPAdapterApply",
+                "IPAdapter",
             ),
             (
                 "Generar con la pose nueva",
@@ -604,7 +604,7 @@ def _plan_background(
             (
                 "Condicionar la identidad",
                 "IP-Adapter con la referencia de rostro del perfil.",
-                "IPAdapterApply",
+                "IPAdapter",
             ),
             (
                 "Regenerar el escenario",
@@ -754,7 +754,7 @@ def _plan_multi_model(
                 order=2 + index,
                 title=f"Integrar a {slot.profile_name}",
                 detail=slot.perspective_note,
-                node="IPAdapterApply",
+                node="IPAdapter",
             )
         )
     steps.append(
