@@ -121,7 +121,7 @@ def test_flux_pose_workflow_has_controlnet() -> None:
     types = _node_types(workflow)
     assert "DualCLIPLoader" in types
     assert "UNETLoader" in types
-    assert "OpenPosePreprocessor" in types
+    assert "OpenposePreprocessor" in types
     assert "ControlNetLoader" in types
     assert "ControlNetApply" in types
 

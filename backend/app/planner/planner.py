@@ -511,7 +511,7 @@ def _plan_pose(request: PlanRequest, segmentation: SegmentationService) -> WorkP
             (
                 "Extraer el mapa de pose",
                 "OpenPose detecta cuerpo, manos y rostro de la referencia.",
-                "OpenPosePreprocessor",
+                "OpenposePreprocessor",
             ),
             (
                 "Condicionar la identidad",

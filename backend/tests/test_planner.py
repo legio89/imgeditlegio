@@ -216,7 +216,7 @@ def test_pose_change_uses_controlnet_openpose(
         )
     )
     types = _node_types(plan.workflow)
-    assert "OpenPosePreprocessor" in types
+    assert "OpenposePreprocessor" in types
     assert "ControlNetApply" in types
     assert "ControlNetLoader" in types
     assert plan.mask is None  # la pose no usa máscara de segmentación

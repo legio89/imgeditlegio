@@ -213,7 +213,7 @@ def build_pose_workflow(
     original = builder.add("LoadImage", {"image": input_filename})
     pose_image = builder.add("LoadImage", {"image": pose_reference_filename})
     pose_map = builder.add(
-        "OpenPosePreprocessor",
+        "OpenposePreprocessor",
         {
             "image": WorkflowBuilder.link(pose_image),
             "detect_hand": "enable",
@@ -615,7 +615,7 @@ def build_flux_pose_workflow(
     original = builder.add("LoadImage", {"image": input_filename})
     pose_image = builder.add("LoadImage", {"image": pose_reference_filename})
     pose_map = builder.add(
-        "OpenPosePreprocessor",
+        "OpenposePreprocessor",
         {
             "image": WorkflowBuilder.link(pose_image),
             "detect_hand": "enable",
