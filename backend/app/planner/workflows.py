@@ -104,19 +104,28 @@ def _identity_adapter(
     """Añade IP-Adapter de identidad y devuelve el nodo de modelo resultante."""
     if reference_path is None:
         return model_node
+    # En ComfyUI_IPAdapter_plus el nodo "IPAdapter" exige que el modelo
+    # se cargue con "IPAdapterUnifiedLoader" (si no, falla en ejecución:
+    # "IPAdapter model not present in the pipeline"). El UnifiedLoader
+    # recibe el modelo, un preset y el IP-Adapter cargado, y devuelve
+    # (MODEL, IPADAPTER) para el nodo IPAdapter.
     ipadapter = builder.add(
         "IPAdapterModelLoader", {"ipadapter_file": DEFAULT_IPADAPTER_MODEL}
     )
+    unified = builder.add(
+        "IPAdapterUnifiedLoader",
+        {
+            "model": WorkflowBuilder.link(model_node),
+            "preset": "PLUS",
+            "ipadapter": WorkflowBuilder.link(ipadapter),
+        },
+    )
     image = builder.add("LoadImage", {"image": reference_path.name})
-    # El nodo se llama "IPAdapter" (no "IPAdapterApply") en
-    # ComfyUI_IPAdapter_plus. Sus entradas son model, ipadapter, image,
-    # weight, start_at, end_at y weight_type; no tiene combine_embeds
-    # ni embeds_scaling.
     adapted = builder.add(
         "IPAdapter",
         {
-            "model": WorkflowBuilder.link(model_node),
-            "ipadapter": WorkflowBuilder.link(ipadapter),
+            "model": WorkflowBuilder.link(unified, 0),
+            "ipadapter": WorkflowBuilder.link(unified, 1),
             "image": WorkflowBuilder.link(image),
             "weight": weight,
             "weight_type": "standard",
