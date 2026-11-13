@@ -146,22 +146,27 @@ def _input_size(request: PlanRequest) -> tuple[int, int] | None:
 
 
 def _garment_name(targets: list[str]) -> str:
+    # Preferir prendas específicas ("vestido") sobre genéricas ("atuendo",
+    # "ropa", "prenda"): el intérprete puede devolver ambas y la
+    # genérica es la que aparece primero en la intención.
+    specific = (
+        "vestido",
+        "camisa",
+        "blusa",
+        "pantalón",
+        "pantalon",
+        "falda",
+        "top",
+        "chaqueta",
+        "abrigo",
+        "traje",
+    )
+    generic = ("ropa", "prenda", "atuendo")
     for target in targets:
-        if target in (
-            "vestido",
-            "camisa",
-            "blusa",
-            "pantalón",
-            "pantalon",
-            "falda",
-            "top",
-            "chaqueta",
-            "abrigo",
-            "traje",
-            "ropa",
-            "prenda",
-            "atuendo",
-        ):
+        if target in specific:
+            return target
+    for target in targets:
+        if target in generic:
             return target
     return "prenda"
 
@@ -181,7 +186,25 @@ def _new_outfit_description(intent_text: str, garment: str) -> str:
     match = _OUTFIT_PHRASE_RE.search(intent_text.strip())
     if match:
         phrase = match.group(1).strip()
-        if phrase and garment.lower() in phrase.lower():
+        # La frase vale si menciona la prenda pedida o cualquier prenda
+        # conocida: el intérprete puede devolver "atuendo" (genérico)
+        # aunque la frase diga "vestido de gala azul elegante".
+        garments = (
+            "vestido",
+            "camisa",
+            "blusa",
+            "pantalón",
+            "pantalon",
+            "falda",
+            "top",
+            "chaqueta",
+            "abrigo",
+            "traje",
+            "ropa",
+            "prenda",
+            "atuendo",
+        )
+        if phrase and any(g in phrase.lower() for g in garments):
             return phrase
     return garment
 

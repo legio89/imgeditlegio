@@ -176,6 +176,30 @@ def test_outfit_change_keeps_full_outfit_description(
     assert plan.summary.startswith("Cambiar vestido por vestido de gala azul elegante")
 
 
+def test_outfit_change_generic_garment_keeps_specific_phrase(
+    input_image: Path,
+) -> None:
+    """Si el intérprete devuelve 'atuendo' (genérico) pero la frase dice
+    'vestido de gala azul elegante', el prompt conserva la frase completa."""
+    plan = build_plan(
+        PlanRequest(
+            operation="outfit_change",
+            intent_text="Cambia el atuendo a un vestido de gala azul elegante",
+            targets=["atuendo", "vestido"],
+            input_path=input_image,
+        )
+    )
+    prompts = [
+        node["inputs"]["text"]
+        for node in plan.workflow.values()
+        if node["class_type"] == "CLIPTextEncode"
+    ]
+    assert prompts, "el workflow debe tener prompts de texto"
+    assert "vestido de gala azul elegante" in prompts[0]
+    assert "azul" in prompts[0]
+    assert plan.summary.startswith("Cambiar vestido por vestido de gala azul elegante")
+
+
 def test_pose_change_uses_controlnet_openpose(
     input_image: Path, face_reference: Path, tmp_path: Path
 ) -> None:
