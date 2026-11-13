@@ -226,14 +226,14 @@ $BackendDir = Join-Path $RepoRoot "backend"
 if (-not $SkipPython) {
     $BackendVenv = Join-Path $BackendDir ".venv"
     if (-not (Test-Path (Join-Path $BackendVenv "Scripts\python.exe"))) {
-        & $PythonExe @PythonArgs -m venv $BackendVenv
+        & $PythonExe @PythonArgs -m venv $BackendVenv 2>&1
     }
     $BackendPython = Join-Path $BackendVenv "Scripts\python.exe"
-    & $BackendPython -m pip install --upgrade pip --quiet
-    & $BackendPython -m pip install -r (Join-Path $BackendDir "requirements.txt")
+    & $BackendPython -m pip install --upgrade pip --quiet 2>&1
+    & $BackendPython -m pip install -r (Join-Path $BackendDir "requirements.txt") 2>&1
     if (-not $NoSam) {
         Write-Host "  Instalando ultralytics (SAM, segmentacion real)..."
-        & $BackendPython -m pip install ultralytics
+        & $BackendPython -m pip install ultralytics 2>&1
     }
     Write-Host "  Backend listo."
 } else {
@@ -247,14 +247,14 @@ Write-Host "[2/6] Frontend de VEXTAR..." -ForegroundColor Cyan
 $FrontendDir = Join-Path $RepoRoot "frontend"
 if (-not $SkipNode) {
     Push-Location $FrontendDir
-    npm install
+    npm install 2>&1
     # Vite necesita el binario de esbuild; si npm no ejecuto su script de
     # instalacion, el binario falta y el frontend no arranca. Se comprueba
     # el archivo y se reconstruye si hace falta.
     $esbuildBin = Join-Path $FrontendDir "node_modules\@esbuild\win32-x64\esbuild.exe"
     if (-not (Test-Path $esbuildBin)) {
         Write-Host "  No esta el binario de esbuild; reconstruyendo..." -ForegroundColor Yellow
-        npm rebuild esbuild
+        npm rebuild esbuild 2>&1
         if (-not (Test-Path $esbuildBin)) {
             Write-Host "  Aviso: esbuild sigue sin su binario. Prueba 'npm rebuild esbuild' a mano en frontend/." -ForegroundColor Yellow
         }
@@ -317,7 +317,7 @@ foreach ($node in $Nodes) {
     if ((-not $SkipPython) -and (Test-Path $req)) {
         Write-Host "  Dependencias de $($node.Name)..."
         try {
-            & $ComfyPython -m pip install -r $req
+            & $ComfyPython -m pip install -r $req 2>&1
         } catch {
             Write-Host "  Aviso: no se pudieron instalar todas las dependencias de $($node.Name). La generacion basica sigue funcionando; revisa el error si un workflow falla." -ForegroundColor Yellow
         }
