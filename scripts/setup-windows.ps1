@@ -204,7 +204,7 @@ if ($SkipPython) {
 
 $SkipNode = -not $HasNode
 if ($HasNode) {
-    Write-Host "Node: $(node --version) / npm: $(npm --version)"
+    Write-Host "Node: $(node --version 2>&1) / npm: $(npm --version 2>&1)"
 } else {
     Write-Host "Node.js no encontrado. Se salta la instalacion del frontend." -ForegroundColor Yellow
     $Skipped += "Node.js (frontend)"
@@ -272,20 +272,22 @@ Write-Host ""
 
 Write-Host "[3/6] ComfyUI..." -ForegroundColor Cyan
 if (-not (Test-Path (Join-Path $ComfyDir "main.py"))) {
-    git clone https://github.com/comfyanonymous/ComfyUI.git $ComfyDir
+    if (Test-Path $ComfyDir) { Remove-Item -Recurse -Force $ComfyDir }
+    git clone https://github.com/comfyanonymous/ComfyUI.git $ComfyDir 2>&1
+    if ($LASTEXITCODE -ne 0) { Write-Host "  No se pudo clonar ComfyUI. Revisa la conexion y vuelve a correr el script." -ForegroundColor Red; exit 1 }
 } else {
     Write-Host "  Ya existe: ComfyUI"
 }
 if (-not $SkipPython) {
     $ComfyVenv = Join-Path $ComfyDir "venv"
     if (-not (Test-Path (Join-Path $ComfyVenv "Scripts\python.exe"))) {
-        & $PythonExe @PythonArgs -m venv $ComfyVenv
+        & $PythonExe @PythonArgs -m venv $ComfyVenv 2>&1
     }
     $ComfyPython = Join-Path $ComfyVenv "Scripts\python.exe"
-    & $ComfyPython -m pip install --upgrade pip --quiet
-    & $ComfyPython -m pip install -r (Join-Path $ComfyDir "requirements.txt")
+    & $ComfyPython -m pip install --upgrade pip --quiet 2>&1
+    & $ComfyPython -m pip install -r (Join-Path $ComfyDir "requirements.txt") 2>&1
     Write-Host "  Instalando torch-directml (GPU AMD)..."
-    & $ComfyPython -m pip install torch-directml
+    & $ComfyPython -m pip install torch-directml 2>&1
     Write-Host "  ComfyUI listo."
 } else {
     Write-Host "  Entorno de ComfyUI omitido (sin Python 3.11/3.12). El clon ya esta."
@@ -304,8 +306,10 @@ $Nodes = @(
 )
 foreach ($node in $Nodes) {
     $dest = Join-Path $CustomNodes $node.Name
+    if ((Test-Path $dest) -and (-not (Test-Path (Join-Path $dest ".git")))) { Remove-Item -Recurse -Force $dest }
     if (-not (Test-Path $dest)) {
-        git clone $node.Url $dest
+        git clone $node.Url $dest 2>&1
+        if ($LASTEXITCODE -ne 0) { Write-Host "  No se pudo clonar $($node.Name)." -ForegroundColor Yellow }
     } else {
         Write-Host "  Ya existe: $($node.Name)"
     }
