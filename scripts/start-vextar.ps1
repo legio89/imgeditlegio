@@ -1,12 +1,12 @@
 ﻿# Arranca VEXTAR con generacion REAL en esta laptop (Windows).
 #
-# Abre tres ventanas: ComfyUI (GPU AMD con DirectML), el backend de VEXTAR
-# (motor ComfyUI) y el frontend. Espera a que cada servicio responda y
-# muestra las direcciones para probar.
+# Abre tres ventanas: ComfyUI (CUDA en GPU NVIDIA, DirectML en GPU AMD),
+# el backend de VEXTAR (motor ComfyUI) y el frontend. Espera a que cada
+# servicio responda y muestra las direcciones para probar.
 #
 # Uso (desde PowerShell, en la carpeta del repo):
-#   .\scripts\start-vextar.ps1          # GPU AMD con DirectML
-#   .\scripts\start-vextar.ps1 -Cpu     # si DirectML da problemas (mas lento)
+#   .\scripts\start-vextar.ps1          # GPU NVIDIA (CUDA) o AMD (DirectML)
+#   .\scripts\start-vextar.ps1 -Cpu     # si la GPU da problemas (mas lento)
 #
 # Primero hay que haber corrido .\scripts\setup-windows.ps1 (una sola vez).
 
@@ -77,11 +77,15 @@ function Wait-ForUrl {
 
 # ------------------------------------------------------------------ ComfyUI
 
+# La GPU decide el motor: NVIDIA usa CUDA (sin --directml ni --lowvram),
+# AMD usa DirectML con --lowvram.
+$IsNvidia = $null -ne (Get-Command nvidia-smi -ErrorAction SilentlyContinue)
+$ComfyMode = if ($Cpu) { "CPU" } elseif ($IsNvidia) { "CUDA (NVIDIA)" } else { "DirectML (AMD)" }
 Write-Host ""
-Write-Host "[1/3] Arrancando ComfyUI (DirectML, --lowvram)..." -ForegroundColor Cyan
+Write-Host "[1/3] Arrancando ComfyUI ($ComfyMode)..." -ForegroundColor Cyan
 $ComfyPython = Join-Path $ComfyDir "venv\Scripts\python.exe"
-$ComfyArgs = @("main.py", "--listen", "127.0.0.1", "--port", "8188", "--lowvram")
-if ($Cpu) { $ComfyArgs += "--cpu" } else { $ComfyArgs += "--directml" }
+$ComfyArgs = @("main.py", "--listen", "127.0.0.1", "--port", "8188")
+if ($Cpu) { $ComfyArgs += "--cpu" } elseif ($IsNvidia) { } else { $ComfyArgs += "--lowvram"; $ComfyArgs += "--directml" }
 Start-Process -FilePath $ComfyPython -ArgumentList $ComfyArgs -WorkingDirectory $ComfyDir
 if (-not (Wait-ForUrl -Url "http://127.0.0.1:8188/system_stats" -Seconds 240)) {
     Write-Host "ComfyUI no respondio en 4 minutos. Revisa su ventana (puede estar cargando modelos o haber fallado)." -ForegroundColor Red

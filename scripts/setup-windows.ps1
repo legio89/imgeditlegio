@@ -6,8 +6,9 @@
 #      alguno, intenta instalarlo con winget.
 #   2. Crea el entorno del backend e instala sus dependencias.
 #   3. Instala las dependencias del frontend.
-#   4. Clona ComfyUI, crea su entorno, instala torch-directml (GPU AMD)
-#      y los custom nodes que usan los workflows del planificador.
+#   4. Clona ComfyUI, crea su entorno, instala el torch adecuado a la GPU
+#      (CUDA en NVIDIA, torch-directml en AMD) y los custom nodes que usan
+#      los workflows del planificador.
 #   5. Descarga los modelos de SD 1.5 (~13 GB en total; una sola vez).
 #   6. Descarga el modelo SAM (opcional, para mascaras con la silueta real).
 #
@@ -32,7 +33,13 @@ param(
     [switch]$NoAdmin
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
+# OJO: en PowerShell 5.1 cualquier cosa que un comando nativo escriba en
+# stderr se convierte en error TERMINANTE con "Stop", y ni 2>&1 ni 2>$null
+# lo evitan (probado en esta laptop: git, pip y npm mueren por simples
+# avisos). Por eso el instalador usa "Continue": los avisos se muestran
+# pero no matan el script. Los fallos reales se detectan con $LASTEXITCODE
+# y con los try/catch que llevan -ErrorAction Stop donde hace falta.
 $RepoRoot = (Get-Item (Join-Path $PSScriptRoot "..")).FullName
 $ComfyDir = Join-Path $RepoRoot "ComfyUI"
 $ModelsDir = Join-Path $RepoRoot "models"
@@ -286,8 +293,23 @@ if (-not $SkipPython) {
     $ComfyPython = Join-Path $ComfyVenv "Scripts\python.exe"
     & $ComfyPython -m pip install --upgrade pip --quiet 2>&1
     & $ComfyPython -m pip install -r (Join-Path $ComfyDir "requirements.txt") 2>&1
-    Write-Host "  Instalando torch-directml (GPU AMD)..."
-    & $ComfyPython -m pip install torch-directml 2>&1
+    # El torch depende de la GPU: en NVIDIA va el torch CUDA que ya trae
+    # requirements.txt (2.15); en AMD va torch-directml (que fija torch
+    # 2.4.1). Si una corrida anterior instalo directml en una NVIDIA, se
+    # quita y se restaura el torch CUDA.
+    $IsNvidia = $null -ne (Get-Command nvidia-smi -ErrorAction SilentlyContinue)
+    if ($IsNvidia) {
+        Write-Host "  GPU NVIDIA detectada: torch CUDA (sin DirectML)."
+        $directMlInfo = & $ComfyPython -m pip show torch-directml 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  Quitando torch-directml de una corrida anterior y restaurando torch CUDA..."
+            & $ComfyPython -m pip uninstall -y torch-directml 2>&1
+            & $ComfyPython -m pip install torch torchvision 2>&1
+        }
+    } else {
+        Write-Host "  Instalando torch-directml (GPU AMD)..."
+        & $ComfyPython -m pip install torch-directml 2>&1
+    }
     Write-Host "  ComfyUI listo."
 } else {
     Write-Host "  Entorno de ComfyUI omitido (sin Python 3.11/3.12). El clon ya esta."
@@ -342,7 +364,7 @@ function Get-Model {
     New-Item -ItemType Directory -Force -Path (Split-Path $Destination) | Out-Null
     Write-Host "  Descargando $(Split-Path $Destination -Leaf) ..."
     try {
-        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+        Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing -ErrorAction Stop
     } catch {
         # Una descarga fallida (red, certificado, reloj del sistema) no
         # aborta el resto: se reporta al final y se reintenta al volver
