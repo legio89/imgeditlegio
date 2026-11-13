@@ -48,7 +48,7 @@ Write-Host "Fecha del sistema: $((Get-Date).ToString('yyyy-MM-dd HH:mm'))"
 # se actualiza solo antes de empezar (si falla, se sigue con lo que hay).
 if (Test-Path (Join-Path $RepoRoot ".git")) {
     Write-Host "Actualizando el repo (git pull)..."
-    git -C $RepoRoot pull --ff-only 2>$null
+    try { git -C $RepoRoot pull --ff-only 2>$null } catch { }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  No se pudo actualizar el repo; se sigue con la version local." -ForegroundColor Yellow
     }
@@ -120,7 +120,7 @@ $PythonExe = "python"
 $PythonArgs = @()
 $PythonVersionOk = $false
 if ($HasPython) {
-    $pythonVersion = (python --version) 2>$null
+    try { $pythonVersion = (python --version 2>&1) } catch { $pythonVersion = "" }
     Write-Host "Python: $pythonVersion"
     if ($pythonVersion -match "Python 3\.(11|12)\.") { $PythonVersionOk = $true }
 }
@@ -129,7 +129,7 @@ if (-not $PythonVersionOk) {
     $launcher312 = $false
     if (Test-Command "py") {
         try {
-            $launcherVersion = (py -3.12 --version) 2>$null
+            $launcherVersion = (py -3.12 --version 2>&1)
             if ($launcherVersion -match "Python 3\.12\.") { $launcher312 = $true }
         } catch { }
     }
