@@ -1,7 +1,7 @@
-# Instalador de VEXTAR para pruebas funcionales en Windows (laptop local).
+﻿# Instalador de VEXTAR para pruebas funcionales en Windows (laptop local).
 #
-# Hace todo lo necesario para correr VEXTAR con generación REAL (ComfyUI +
-# Stable Diffusion 1.5) en esta máquina, sin pagar nada:
+# Hace todo lo necesario para correr VEXTAR con generacion REAL (ComfyUI +
+# Stable Diffusion 1.5) en esta maquina, sin pagar nada:
 #   1. Revisa los requisitos (Git, Python 3.11/3.12, Node.js) y, si falta
 #      alguno, intenta instalarlo con winget.
 #   2. Crea el entorno del backend e instala sus dependencias.
@@ -9,17 +9,17 @@
 #   4. Clona ComfyUI, crea su entorno, instala torch-directml (GPU AMD)
 #      y los custom nodes que usan los workflows del planificador.
 #   5. Descarga los modelos de SD 1.5 (~13 GB en total; una sola vez).
-#   6. Descarga el modelo SAM (opcional, para máscaras con la silueta real).
+#   6. Descarga el modelo SAM (opcional, para mascaras con la silueta real).
 #
 # Uso (desde PowerShell, en la carpeta del repo):
 #   .\scripts\setup-windows.ps1
 #   .\scripts\setup-windows.ps1 -NoSam     # salta SAM / ultralytics
 #   .\scripts\setup-windows.ps1 -NoAdmin   # sin permisos de administrador:
 #      no usa winget ni instaladores; si falta Python o Node, salta los
-#      pasos que los necesitan y sigue con lo demás (clones y descargas
-#      de modelos). Ideal para adelantar la instalación en remoto.
+#      pasos que los necesitan y sigue con lo demas (clones y descargas
+#      de modelos). Ideal para adelantar la instalacion en remoto.
 #
-# Python: el proyecto y ComfyUI están probados con Python 3.11/3.12 (igual
+# Python: el proyecto y ComfyUI estan probados con Python 3.11/3.12 (igual
 # que el CI). Si el `python` por defecto es 3.13, el instalador busca el
 # lanzador `py -3.12` y, si no existe, instala Python 3.12 solo para el
 # usuario actual (sin permisos de administrador) en paralelo al 3.13.
@@ -37,9 +37,9 @@ $RepoRoot = (Get-Item (Join-Path $PSScriptRoot "..")).FullName
 $ComfyDir = Join-Path $RepoRoot "ComfyUI"
 $ModelsDir = Join-Path $RepoRoot "models"
 
-Write-Host "VEXTAR — instalación local (Windows)" -ForegroundColor Cyan
+Write-Host "VEXTAR - instalacion local (Windows)" -ForegroundColor Cyan
 if ($NoAdmin) {
-    Write-Host "MODO SIN ADMIN: nada pedirá permisos de administrador." -ForegroundColor Cyan
+    Write-Host "MODO SIN ADMIN: nada pedira permisos de administrador." -ForegroundColor Cyan
 }
 Write-Host "Repo: $RepoRoot"
 Write-Host "Fecha del sistema: $((Get-Date).ToString('yyyy-MM-dd HH:mm'))"
@@ -50,16 +50,16 @@ if (Test-Path (Join-Path $RepoRoot ".git")) {
     Write-Host "Actualizando el repo (git pull)..."
     git -C $RepoRoot pull --ff-only 2>$null
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "  No se pudo actualizar el repo; se sigue con la versión local." -ForegroundColor Yellow
+        Write-Host "  No se pudo actualizar el repo; se sigue con la version local." -ForegroundColor Yellow
     }
 }
 
-# El reloj del sistema tiene que estar bien: si la fecha está mal, las
-# descargas HTTPS fallan porque el certificado "no es válido todavía"
+# El reloj del sistema tiene que estar bien: si la fecha esta mal, las
+# descargas HTTPS fallan porque el certificado "no es valido todavia"
 # (NotTimeValid). En laptops viejas el reloj se atrasa si la pila del
-# BIOS está agotada; basta sincronizar en Configuración > Hora e idioma.
+# BIOS esta agotada; basta sincronizar en Configuracion > Hora e idioma.
 if ((Get-Date).Year -lt 2026) {
-    Write-Host "  Aviso: la fecha del sistema es $((Get-Date).ToString('yyyy-MM-dd')). Si está mal, las descargas fallan por certificado. Activa 'Establecer hora automáticamente' y pulsa 'Sincronizar ahora' en Configuración > Hora e idioma, y vuelve a correr este script." -ForegroundColor Yellow
+    Write-Host "  Aviso: la fecha del sistema es $((Get-Date).ToString('yyyy-MM-dd')). Si esta mal, las descargas fallan por certificado. Activa 'Establecer hora automaticamente' y pulsa 'Sincronizar ahora' en Configuracion > Hora e idioma, y vuelve a correr este script." -ForegroundColor Yellow
 }
 Write-Host ""
 
@@ -105,14 +105,14 @@ if (-not $NoAdmin) {
 }
 
 if (-not $HasGit) {
-    Write-Host "Git no está instalado y sin Git no se puede clonar nada." -ForegroundColor Red
+    Write-Host "Git no esta instalado y sin Git no se puede clonar nada." -ForegroundColor Red
     Write-Host "Instala Git desde https://git-scm.com/download/win y vuelve a correr este script." -ForegroundColor Red
     exit 1
 }
 
-# ------------------------------------------------------- selección de Python
-# El proyecto está probado con 3.11/3.12. Si el python por defecto es otra
-# versión (por ejemplo 3.13), se usa el lanzador `py -3.12` si existe; si
+# ------------------------------------------------------- seleccion de Python
+# El proyecto esta probado con 3.11/3.12. Si el python por defecto es otra
+# version (por ejemplo 3.13), se usa el lanzador `py -3.12` si existe; si
 # no, en modo sin admin se instala Python 3.12 solo para el usuario
 # (InstallAllUsers=0 no pide permisos de administrador).
 
@@ -134,7 +134,7 @@ if (-not $PythonVersionOk) {
         } catch { }
     }
     if ($launcher312) {
-        Write-Host "Se usará Python 3.12 con el lanzador 'py -3.12' (el python por defecto es otra versión)."
+        Write-Host "Se usara Python 3.12 con el lanzador 'py -3.12' (el python por defecto es otra version)."
         $PythonExe = "py"
         $PythonArgs = @("-3.12")
         $PythonVersionOk = $true
@@ -152,7 +152,7 @@ if (-not $PythonVersionOk) {
             $pyLog = Join-Path $env:TEMP "python312-install.log"
             Start-Process -FilePath $pyInstaller -ArgumentList "/quiet", "InstallAllUsers=0", "PrependPath=0", "Include_launcher=1", "Include_test=0", "/log", $pyLog -Wait
             if ($LASTEXITCODE -ne 0) {
-                Write-Host "  El instalador de Python 3.12 terminó con código $LASTEXITCODE. Detalle en $pyLog" -ForegroundColor Yellow
+                Write-Host "  El instalador de Python 3.12 termino con codigo $LASTEXITCODE. Detalle en $pyLog" -ForegroundColor Yellow
             }
             # El instalador actualiza el PATH del usuario, pero la ventana
             # de PowerShell ya abierta no lo ve: se recarga desde el registro.
@@ -160,7 +160,7 @@ if (-not $PythonVersionOk) {
             try {
                 $launcherVersion = (py -3.12 --version 2>&1)
                 if ($launcherVersion -match "Python 3\.12\.") {
-                    Write-Host "Python 3.12 instalado. Se usará con el lanzador 'py -3.12'."
+                    Write-Host "Python 3.12 instalado. Se usara con el lanzador 'py -3.12'."
                     $PythonExe = "py"
                     $PythonArgs = @("-3.12")
                     $PythonVersionOk = $true
@@ -168,8 +168,8 @@ if (-not $PythonVersionOk) {
             } catch { }
         }
         if (-not $PythonVersionOk) {
-            # Sin lanzador: buscar el intérprete directamente en sus rutas
-            # habituales (la instalación por usuario va a %LOCALAPPDATA%).
+            # Sin lanzador: buscar el interprete directamente en sus rutas
+            # habituales (la instalacion por usuario va a %LOCALAPPDATA%).
             $candidatePaths = @(
                 (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"),
                 "C:\Program Files\Python312\python.exe"
@@ -198,7 +198,7 @@ if (-not $PythonVersionOk) {
 
 $SkipPython = -not $PythonVersionOk
 if ($SkipPython) {
-    Write-Host "Python 3.11/3.12 no disponible. Se saltan los pasos que lo necesitan (entornos y dependencias); los clones y las descargas de modelos sí se hacen." -ForegroundColor Yellow
+    Write-Host "Python 3.11/3.12 no disponible. Se saltan los pasos que lo necesitan (entornos y dependencias); los clones y las descargas de modelos si se hacen." -ForegroundColor Yellow
     $Skipped += "Python 3.12 (entornos y dependencias)"
 }
 
@@ -206,7 +206,7 @@ $SkipNode = -not $HasNode
 if ($HasNode) {
     Write-Host "Node: $(node --version) / npm: $(npm --version)"
 } else {
-    Write-Host "Node.js no encontrado. Se salta la instalación del frontend." -ForegroundColor Yellow
+    Write-Host "Node.js no encontrado. Se salta la instalacion del frontend." -ForegroundColor Yellow
     $Skipped += "Node.js (frontend)"
 }
 
@@ -232,7 +232,7 @@ if (-not $SkipPython) {
     & $BackendPython -m pip install --upgrade pip --quiet
     & $BackendPython -m pip install -r (Join-Path $BackendDir "requirements.txt")
     if (-not $NoSam) {
-        Write-Host "  Instalando ultralytics (SAM, segmentación real)..."
+        Write-Host "  Instalando ultralytics (SAM, segmentacion real)..."
         & $BackendPython -m pip install ultralytics
     }
     Write-Host "  Backend listo."
@@ -248,18 +248,18 @@ $FrontendDir = Join-Path $RepoRoot "frontend"
 if (-not $SkipNode) {
     Push-Location $FrontendDir
     npm install
-    # Vite necesita el binario de esbuild; si npm no ejecutó su script de
-    # instalación, el binario falta y el frontend no arranca. Se comprueba
+    # Vite necesita el binario de esbuild; si npm no ejecuto su script de
+    # instalacion, el binario falta y el frontend no arranca. Se comprueba
     # el archivo y se reconstruye si hace falta.
     $esbuildBin = Join-Path $FrontendDir "node_modules\@esbuild\win32-x64\esbuild.exe"
     if (-not (Test-Path $esbuildBin)) {
-        Write-Host "  No está el binario de esbuild; reconstruyendo..." -ForegroundColor Yellow
+        Write-Host "  No esta el binario de esbuild; reconstruyendo..." -ForegroundColor Yellow
         npm rebuild esbuild
         if (-not (Test-Path $esbuildBin)) {
             Write-Host "  Aviso: esbuild sigue sin su binario. Prueba 'npm rebuild esbuild' a mano en frontend/." -ForegroundColor Yellow
         }
     } else {
-        Write-Host "  esbuild OK (binario presente). El aviso de npm durante la instalación no impide que el frontend arranque."
+        Write-Host "  esbuild OK (binario presente). El aviso de npm durante la instalacion no impide que el frontend arranque."
     }
     Pop-Location
     Write-Host "  Frontend listo."
@@ -288,7 +288,7 @@ if (-not $SkipPython) {
     & $ComfyPython -m pip install torch-directml
     Write-Host "  ComfyUI listo."
 } else {
-    Write-Host "  Entorno de ComfyUI omitido (sin Python 3.11/3.12). El clon ya está."
+    Write-Host "  Entorno de ComfyUI omitido (sin Python 3.11/3.12). El clon ya esta."
 }
 Write-Host ""
 
@@ -315,7 +315,7 @@ foreach ($node in $Nodes) {
         try {
             & $ComfyPython -m pip install -r $req
         } catch {
-            Write-Host "  Aviso: no se pudieron instalar todas las dependencias de $($node.Name). La generación básica sigue funcionando; revisa el error si un workflow falla." -ForegroundColor Yellow
+            Write-Host "  Aviso: no se pudieron instalar todas las dependencias de $($node.Name). La generacion basica sigue funcionando; revisa el error si un workflow falla." -ForegroundColor Yellow
         }
     }
 }
@@ -345,7 +345,7 @@ function Get-Model {
         # a correr el script.
         Write-Host "  No se pudo descargar $(Split-Path $Destination -Leaf): $($_.Exception.Message)" -ForegroundColor Yellow
         if ($_.Exception.Message -match "certific|NotTimeValid|SSL|TLS") {
-            Write-Host "  Parece un problema de certificado: casi siempre es la fecha/hora del sistema. Sincroniza el reloj en Configuración > Hora e idioma > Sincronizar ahora y vuelve a correr el script." -ForegroundColor Yellow
+            Write-Host "  Parece un problema de certificado: casi siempre es la fecha/hora del sistema. Sincroniza el reloj en Configuracion > Hora e idioma > Sincronizar ahora y vuelve a correr el script." -ForegroundColor Yellow
         }
         $script:FailedDownloads += $Destination
     }
@@ -368,15 +368,15 @@ Write-Host ""
 # ----------------------------------------------------------------------- SAM
 
 if (-not $NoSam) {
-    Write-Host "[6/6] Modelo SAM (segmentación real, opcional)..." -ForegroundColor Cyan
+    Write-Host "[6/6] Modelo SAM (segmentacion real, opcional)..." -ForegroundColor Cyan
     Get-Model -Url "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt" -Destination (Join-Path $ModelsDir "sam2.1_b.pt")
-    Write-Host "  SAM listo (o pendiente si la descarga falló; sin SAM la segmentación usa el stub)."
+    Write-Host "  SAM listo (o pendiente si la descarga fallo; sin SAM la segmentacion usa el stub)."
 } else {
-    Write-Host "[6/6] SAM omitido (-NoSam). La segmentación usará el stub." -ForegroundColor Yellow
+    Write-Host "[6/6] SAM omitido (-NoSam). La segmentacion usara el stub." -ForegroundColor Yellow
 }
 Write-Host ""
 
-Write-Host "Instalación completa." -ForegroundColor Green
+Write-Host "Instalacion completa." -ForegroundColor Green
 if ($Skipped.Count -gt 0) {
     Write-Host "Omitido en modo sin admin (falta instalarlo):" -ForegroundColor Yellow
     $Skipped | ForEach-Object { Write-Host "  - $_" }
@@ -387,4 +387,4 @@ if ($FailedDownloads.Count -gt 0) {
     $FailedDownloads | ForEach-Object { Write-Host "  - $_" }
 }
 Write-Host "Ahora arranca todo con:  .\scripts\start-vextar.ps1"
-Write-Host "La primera generación tarda minutos en esta laptop: es normal."
+Write-Host "La primera generacion tarda minutos en esta laptop: es normal."
