@@ -18,6 +18,7 @@ Reglas de la visión que el planificador hace cumplir:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from .segmentation import (
@@ -165,6 +166,26 @@ def _garment_name(targets: list[str]) -> str:
     return "prenda"
 
 
+# Frase del atuendo nuevo: lo que sigue a "a / por / con [un|una|el|la]"
+# hasta el final de la frase. Conserva color, estilo y detalles
+# ("vestido de gala azul elegante") en vez de quedarse solo con la
+# prenda ("vestido").
+_OUTFIT_PHRASE_RE = re.compile(
+    r"\b(?:a|por|con)\s+(?:un|una|el|la|unos|unas)?\s*([^.,;]+)$",
+    re.IGNORECASE,
+)
+
+
+def _new_outfit_description(intent_text: str, garment: str) -> str:
+    """Descripción completa del atuendo nuevo según la intención."""
+    match = _OUTFIT_PHRASE_RE.search(intent_text.strip())
+    if match:
+        phrase = match.group(1).strip()
+        if phrase and garment.lower() in phrase.lower():
+            return phrase
+    return garment
+
+
 def build_plan(
     request: PlanRequest,
     segmentation: SegmentationService | None = None,
@@ -192,11 +213,13 @@ def _plan_outfit_change(
 ) -> WorkPlan:
     garment = _garment_name(request.targets)
     mask = _mask_for_garment(request, segmentation, garment)
-    checkpoint = request.parameters.get("checkpoint", DEFAULT_CHECKPOINT)
+    # Inpainting: el checkpoint de inpainting es el adecuado; el base
+    # genera peor en las regiones enmascaradas.
+    checkpoint = request.parameters.get("checkpoint", DEFAULT_INPAINT_CHECKPOINT)
     identity = _first_reference(request.references, "face") or _first_reference(
         request.references, "body"
     )
-    new_outfit = ", ".join(request.targets) if request.targets else "nuevo atuendo"
+    new_outfit = _new_outfit_description(request.intent_text, garment)
     positive = (
         f"{POSITIVE_PHOTO}, person wearing {new_outfit}, "
         "natural fabric, coherent lighting, seamless integration"
@@ -291,7 +314,8 @@ def _plan_outfit_remove(
 ) -> WorkPlan:
     garment = _garment_name(request.targets)
     mask = _mask_for_garment(request, segmentation, garment)
-    checkpoint = request.parameters.get("checkpoint", DEFAULT_CHECKPOINT)
+    # Inpainting: el checkpoint de inpainting es el adecuado.
+    checkpoint = request.parameters.get("checkpoint", DEFAULT_INPAINT_CHECKPOINT)
     identity = _first_reference(request.references, "face") or _first_reference(
         request.references, "body"
     )
@@ -499,7 +523,8 @@ def _plan_background(
             "segmentar a la persona."
         )
     mask = segmentation.background_mask(request.input_path)
-    checkpoint = request.parameters.get("checkpoint", DEFAULT_CHECKPOINT)
+    # Inpainting del fondo: el checkpoint de inpainting es el adecuado.
+    checkpoint = request.parameters.get("checkpoint", DEFAULT_INPAINT_CHECKPOINT)
     identity = _first_reference(request.references, "face") or _first_reference(
         request.references, "body"
     )
@@ -643,7 +668,8 @@ def _plan_multi_model(
     size = _input_size(request) or (1024, 1024)
     _ = size  # las regiones son normalizadas; el tamaño solo valida la entrada
     slots = _composition_slots(profiles)
-    checkpoint = request.parameters.get("checkpoint", DEFAULT_CHECKPOINT)
+    # Inpainting por región: el checkpoint de inpainting es el adecuado.
+    checkpoint = request.parameters.get("checkpoint", DEFAULT_INPAINT_CHECKPOINT)
     identity_refs = [
         ref
         for profile in profiles

@@ -196,3 +196,41 @@ def test_sam_without_masks_uses_fallback_box(monkeypatch, tmp_path: Path) -> Non
     assert person.source == "sam-segmentation"
     assert person.confidence == 0.3
     assert person.bbox == (0.15, 0.05, 0.85, 0.95)
+
+
+def _fake_sam_module_group_photo():
+    """Foto de grupo: una persona grande en el borde izquierdo y otra
+    comparable en el centro inferior (primer plano).
+
+    La más grande es la del borde (x 0..30, y 10..85); la del centro
+    (x 45..85, y 25..90) es solo un poco menor. La persona principal
+    debe ser la del centro, no la del borde.
+    """
+
+    class _FakeSAM:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+        def predict(self, image_path: str, verbose: bool = False):
+            data = np.zeros((2, 96, 128), dtype=np.float32)
+            data[0, 10:86, 0:31] = 1.0  # borde izquierdo, la más grande
+            data[1, 25:91, 45:86] = 1.0  # centro inferior, comparable
+            return [_FakeResult(data)]
+
+    module = types.ModuleType("ultralytics")
+    module.SAM = _FakeSAM
+    return module
+
+
+def test_sam_group_photo_picks_central_person(monkeypatch, tmp_path: Path) -> None:
+    """En foto de grupo, SAM elige a la persona central, no la del borde."""
+    monkeypatch.setitem(sys.modules, "ultralytics", _fake_sam_module_group_photo())
+    model_file = tmp_path / "sam2.1_b.pt"
+    model_file.write_bytes(b"pesos-falsos")
+    service = SamSegmentationService(model_path=model_file)
+    person = service.segment_person(_image(tmp_path))
+    assert person.source == "sam-segmentation"
+    # La caja debe ser la de la persona del centro (x 45..85), no la del
+    # borde izquierdo (x 0..30).
+    assert person.bbox[0] == pytest.approx(45 / 128, abs=0.01)
+    assert person.bbox[2] == pytest.approx(86 / 128, abs=0.01)

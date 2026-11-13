@@ -128,6 +128,54 @@ def test_outfit_change_without_outfit_reference_warns(input_image: Path) -> None
     assert "VAEEncodeForInpaint" in _node_types(plan.workflow)
 
 
+def test_outfit_change_uses_inpaint_checkpoint_by_default(
+    input_image: Path,
+) -> None:
+    """El inpainting de vestimenta usa el checkpoint de inpainting."""
+    plan = build_plan(
+        PlanRequest(
+            operation="outfit_change",
+            intent_text="Cambiar el vestido por uno rojo",
+            targets=["vestido"],
+            input_path=input_image,
+        )
+    )
+    assert plan.models["checkpoint"] == "sd-v1-5-inpainting.ckpt"
+    loaders = [
+        node
+        for node in plan.workflow.values()
+        if node["class_type"] == "CheckpointLoaderSimple"
+    ]
+    assert loaders
+    assert loaders[0]["inputs"]["ckpt_name"] == "sd-v1-5-inpainting.ckpt"
+    # Ya no advierte de usar el checkpoint de inpainting: ya lo usa.
+    assert not any("checkpoint de inpainting" in w for w in plan.warnings)
+
+
+def test_outfit_change_keeps_full_outfit_description(
+    input_image: Path,
+) -> None:
+    """El prompt conserva color y estilo, no solo la prenda."""
+    plan = build_plan(
+        PlanRequest(
+            operation="outfit_change",
+            intent_text="Cambia el atuendo de la mujer a un vestido de gala azul elegante",
+            targets=["vestido"],
+            input_path=input_image,
+        )
+    )
+    prompts = [
+        node["inputs"]["text"]
+        for node in plan.workflow.values()
+        if node["class_type"] == "CLIPTextEncode"
+    ]
+    assert prompts, "el workflow debe tener prompts de texto"
+    positive = prompts[0]
+    assert "vestido de gala azul elegante" in positive
+    assert "azul" in positive
+    assert plan.summary.startswith("Cambiar vestido por vestido de gala azul elegante")
+
+
 def test_pose_change_uses_controlnet_openpose(
     input_image: Path, face_reference: Path, tmp_path: Path
 ) -> None:

@@ -299,7 +299,7 @@ class SamSegmentationService:
             try:
                 model = self._load_model()
                 results = model.predict(str(image_path), verbose=False)
-                mask = self._largest_mask(results)
+                mask = self._select_person_mask(results, width, height)
                 if mask is not None:
                     result = (mask, (width, height))
             except Exception:  # noqa: BLE001 - SAM nunca debe romper el trabajo
@@ -310,8 +310,15 @@ class SamSegmentationService:
         return result
 
     @staticmethod
-    def _largest_mask(results) -> object | None:
-        """La máscara de mayor área del primer resultado, o None."""
+    def _select_person_mask(results, width: int, height: int) -> object | None:
+        """La máscara de la persona principal de la imagen.
+
+        SAM devuelve una máscara por persona. Elegir solo la más grande
+        falla en fotos de grupo: puede ser alguien del borde. La persona
+        principal suele ser grande Y estar centrada y en primer plano
+        (abajo). Entre las máscaras con área comparable (al menos el 30%
+        de la mayor), se elige la más cercana al centro inferior.
+        """
         if not results:
             return None
         masks = getattr(results[0], "masks", None)
@@ -323,8 +330,37 @@ class SamSegmentationService:
         array = np.asarray(data)
         if array.ndim != 3 or array.shape[0] == 0:
             return None
-        areas = array.reshape(array.shape[0], -1).sum(axis=1)
-        return array[int(np.argmax(areas))] > 0
+        areas: list[float] = []
+        centroids: list[tuple[float, float]] = []
+        for mask in array:
+            binary = mask > 0
+            area = float(binary.sum()) / (width * height)
+            areas.append(area)
+            ys, xs = np.nonzero(binary)
+            if len(xs) == 0:
+                centroids.append((0.5, 0.5))
+            else:
+                centroids.append((float(xs.mean()) / width, float(ys.mean()) / height))
+        if not areas:
+            return None
+        max_area = max(areas)
+        if max_area < 0.01:
+            return None
+        # Candidatas: personas de tamaño comparable a la mayor.
+        candidates = [
+            index for index, area in enumerate(areas) if area >= 0.3 * max_area
+        ]
+        if not candidates:
+            candidates = [int(np.argmax(areas))]
+        # De las candidatas, la más cercana al centro inferior (primer plano).
+        best = min(
+            candidates,
+            key=lambda index: (
+                (centroids[index][0] - 0.5) ** 2 + (centroids[index][1] - 0.75) ** 2
+            )
+            ** 0.5,
+        )
+        return array[best] > 0
 
     def _image_size(self, image_path: Path) -> tuple[int, int]:
         with Image.open(image_path) as image:
